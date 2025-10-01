@@ -1,0 +1,26 @@
+{
+  "version": "2.0",
+  "logging": {
+    "applicationInsights": {
+      "samplingSettings": {
+        "isEnabled": true,
+        "excludedTypes": "Request"
+      }
+    }
+  },
+  "extensionBundle": {
+    "id": "Microsoft.Azure.Functions.ExtensionBundle",
+    "version": "[3.*, 4.0.0)"
+  },
+  "functionTimeout": "00:05:00",
+  "functions": [
+    "get_today",
+    "post_today", 
+    "put_today",
+    "delete_today",
+    "get_yesterday",
+    "post_yesterday",
+    "put_yesterday", 
+    "delete_yesterday"
+  ]
+}

@@ -36,7 +36,7 @@
 
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -44,6 +44,7 @@ import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
 import { Plus, Menu } from "lucide-react"
+import { todayAPI, yesterdayAPI } from "./services/api"
 
 // Sample data
 const processData = [
@@ -112,18 +113,11 @@ const kudosData = [
   { name: "Jennifer Liu", action: "Streamlined quality control procedures", date: "12/22" },
 ]
 
-const yesterdayIssues = [
-  { item: "Tool 1", description: "Calibration drift detected", done: "No", who: "Tech Team A", date: "12/22" },
-  { item: "Tool 2", description: "Temperature variance", done: "Yes", who: "Tech Team B", date: "12/22" },
-  { item: "Tool 3", description: "Pressure sensor fault", done: "No", who: "Tech Team C", date: "12/22" },
-  { item: "Tool 4", description: "Software update required", done: "Yes", who: "IT Team", date: "12/22" },
-]
-
-const todayIssues = [
-  { item: "Tool 5", description: "Routine maintenance due", who: "Tech Team A", date: "12/23", done: "No" },
-  { item: "Tool 6", description: "Performance monitoring", who: "Tech Team B", date: "12/23", done: "Yes" },
-  { item: "Tool 7", description: "Quality check pending", who: "QA Team", date: "12/23", done: "No" },
-]
+// Data will be loaded from API
+const [yesterdayIssues, setYesterdayIssues] = useState([])
+const [todayIssues, setTodayIssues] = useState([])
+const [loading, setLoading] = useState(true)
+const [error, setError] = useState("")
 
 // Chart data
 const pceData = [
@@ -162,10 +156,35 @@ export default function ProductionDashboard() {
   const [newKudos, setNewKudos] = useState({ name: "", action: "" })
   const [isAddingKudos, setIsAddingKudos] = useState(false)
 
-  const [newTodayIssue, setNewTodayIssue] = useState({ item: "", description: "", who: "" })
+  const [newTodayIssue, setNewTodayIssue] = useState({ description: "", resolved: "No", who: "", whom: "" })
   const [isAddingTodayIssue, setIsAddingTodayIssue] = useState(false)
+  const [newYesterdayIssue, setNewYesterdayIssue] = useState({ description: "", resolved: "No", who: "", whom: "", resolved_status: "Pending" })
+  const [isAddingYesterdayIssue, setIsAddingYesterdayIssue] = useState(false)
 
   const [showOnlyIncomplete, setShowOnlyIncomplete] = useState(false)
+
+  // Load data from API on component mount
+  useEffect(() => {
+    loadData()
+  }, [])
+
+  const loadData = async () => {
+    try {
+      setLoading(true)
+      setError("")
+      const [todayData, yesterdayData] = await Promise.all([
+        todayAPI.getAll(),
+        yesterdayAPI.getAll()
+      ])
+      setTodayIssues(todayData)
+      setYesterdayIssues(yesterdayData)
+    } catch (err) {
+      setError("Failed to load data: " + (err.response?.data?.error || err.message))
+      console.error("Error loading data:", err)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const handleAddSafetyIssue = () => {
     if (newSafetyIssue.issue && newSafetyIssue.person && newSafetyIssue.action) {
@@ -182,19 +201,46 @@ export default function ProductionDashboard() {
     }
   }
 
-  const handleAddTodayIssue = () => {
-    if (newTodayIssue.item && newTodayIssue.description && newTodayIssue.who) {
-      setNewTodayIssue({ item: "", description: "", who: "" })
+  const handleAddTodayIssue = async () => {
+    if (!newTodayIssue.description || !newTodayIssue.who || !newTodayIssue.whom) {
+      setError("Please fill in all required fields")
+      return
+    }
+
+    try {
+      await todayAPI.create(newTodayIssue)
+      setNewTodayIssue({ description: "", resolved: "No", who: "", whom: "" })
       setIsAddingTodayIssue(false)
+      await loadData()
+      setError("")
+    } catch (err) {
+      setError("Failed to add today's issue: " + (err.response?.data?.error || err.message))
+    }
+  }
+
+  const handleAddYesterdayIssue = async () => {
+    if (!newYesterdayIssue.description || !newYesterdayIssue.who || !newYesterdayIssue.whom) {
+      setError("Please fill in all required fields")
+      return
+    }
+
+    try {
+      await yesterdayAPI.create(newYesterdayIssue)
+      setNewYesterdayIssue({ description: "", resolved: "No", who: "", whom: "", resolved_status: "Pending" })
+      setIsAddingYesterdayIssue(false)
+      await loadData()
+      setError("")
+    } catch (err) {
+      setError("Failed to add yesterday's issue: " + (err.response?.data?.error || err.message))
     }
   }
 
   const getFilteredYesterdayIssues = () => {
-    return showOnlyIncomplete ? yesterdayIssues.filter((issue) => issue.done === "No") : yesterdayIssues
+    return showOnlyIncomplete ? yesterdayIssues.filter((issue) => issue.resolved === "No") : yesterdayIssues
   }
 
   const getFilteredTodayIssues = () => {
-    return showOnlyIncomplete ? todayIssues.filter((issue) => issue.done === "No") : todayIssues
+    return showOnlyIncomplete ? todayIssues.filter((issue) => issue.resolved === "No") : todayIssues
   }
 
   return (
@@ -213,6 +259,20 @@ export default function ProductionDashboard() {
           </div>
         </div>
       </nav>
+
+      {/* Error Display */}
+      {error && (
+        <div className="bg-destructive/10 text-destructive p-4 m-6 rounded-lg">
+          {error}
+        </div>
+      )}
+
+      {/* Loading State */}
+      {loading && (
+        <div className="flex justify-center items-center p-8">
+          <div className="text-muted-foreground">Loading data...</div>
+        </div>
+      )}
 
       <div className="p-6 space-y-6">
         {/* Process Information Table */}
@@ -397,10 +457,16 @@ export default function ProductionDashboard() {
                   Show only incomplete
                 </label>
               </div>
-              <Button size="sm" onClick={() => setIsAddingTodayIssue(true)} className="bg-primary hover:bg-primary/90">
-                <Plus className="h-4 w-4 mr-2" />
-                Add Top Issues
-              </Button>
+              <div className="flex gap-2">
+                <Button size="sm" onClick={() => setIsAddingYesterdayIssue(true)} className="bg-secondary hover:bg-secondary/90">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Yesterday
+                </Button>
+                <Button size="sm" onClick={() => setIsAddingTodayIssue(true)} className="bg-primary hover:bg-primary/90">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Today
+                </Button>
+              </div>
             </div>
           </CardHeader>
           <CardContent>
@@ -412,33 +478,99 @@ export default function ProductionDashboard() {
                   <table className="w-full">
                     <thead>
                       <tr className="border-b border-border">
-                        <th className="text-left py-2 px-3 font-medium text-muted-foreground text-sm">Item</th>
                         <th className="text-left py-2 px-3 font-medium text-muted-foreground text-sm">Description</th>
-                        <th className="text-left py-2 px-3 font-medium text-muted-foreground text-sm">Done?</th>
+                        <th className="text-left py-2 px-3 font-medium text-muted-foreground text-sm">Resolved</th>
                         <th className="text-left py-2 px-3 font-medium text-muted-foreground text-sm">Who</th>
-                        <th className="text-left py-2 px-2 font-medium text-muted-foreground text-sm">Date</th>
+                        <th className="text-left py-2 px-3 font-medium text-muted-foreground text-sm">Whom</th>
+                        <th className="text-left py-2 px-2 font-medium text-muted-foreground text-sm">Status</th>
                       </tr>
                     </thead>
                     <tbody>
                       {getFilteredYesterdayIssues().map((row, index) => (
                         <tr
-                          key={index}
-                          className={`${index % 2 === 0 ? "bg-muted/50" : ""} ${row.done === "No" ? "bg-destructive/10" : ""}`}
+                          key={row._id || index}
+                          className={`${index % 2 === 0 ? "bg-muted/50" : ""} ${row.resolved === "No" ? "bg-destructive/10" : ""}`}
                         >
-                          <td className="py-2 px-3 text-sm">{row.item}</td>
                           <td className="py-2 px-3 text-sm">{row.description}</td>
                           <td className="py-2 px-3 text-sm">
                             <Badge
-                              variant={row.done === "Yes" ? "secondary" : "destructive"}
-                              className={row.done === "Yes" ? "bg-primary/10 text-primary" : ""}
+                              variant={row.resolved === "Yes" ? "secondary" : "destructive"}
+                              className={row.resolved === "Yes" ? "bg-primary/10 text-primary" : ""}
                             >
-                              {row.done}
+                              {row.resolved}
                             </Badge>
                           </td>
                           <td className="py-2 px-3 text-sm">{row.who}</td>
-                          <td className="py-2 px-2 text-sm text-muted-foreground">{row.date}</td>
+                          <td className="py-2 px-3 text-sm">{row.whom}</td>
+                          <td className="py-2 px-2 text-sm text-muted-foreground">
+                            <Badge variant="outline" className="text-xs">
+                              {row.resolved_status}
+                            </Badge>
+                          </td>
                         </tr>
                       ))}
+                      {isAddingYesterdayIssue && (
+                        <tr className="bg-accent/50">
+                          <td className="py-2 px-3">
+                            <Input
+                              placeholder="Description"
+                              value={newYesterdayIssue.description}
+                              onChange={(e) => setNewYesterdayIssue({ ...newYesterdayIssue, description: e.target.value })}
+                              className="h-8"
+                            />
+                          </td>
+                          <td className="py-2 px-3">
+                            <select
+                              value={newYesterdayIssue.resolved}
+                              onChange={(e) => setNewYesterdayIssue({ ...newYesterdayIssue, resolved: e.target.value })}
+                              className="h-8 px-3 border rounded-md bg-background"
+                            >
+                              <option value="No">No</option>
+                              <option value="Yes">Yes</option>
+                            </select>
+                          </td>
+                          <td className="py-2 px-3">
+                            <Input
+                              placeholder="Who (assigned by)"
+                              value={newYesterdayIssue.who}
+                              onChange={(e) => setNewYesterdayIssue({ ...newYesterdayIssue, who: e.target.value })}
+                              className="h-8"
+                            />
+                          </td>
+                          <td className="py-2 px-3">
+                            <Input
+                              placeholder="Whom (assigned to)"
+                              value={newYesterdayIssue.whom}
+                              onChange={(e) => setNewYesterdayIssue({ ...newYesterdayIssue, whom: e.target.value })}
+                              className="h-8"
+                            />
+                          </td>
+                          <td className="py-2 px-2">
+                            <div className="flex gap-2">
+                              <select
+                                value={newYesterdayIssue.resolved_status}
+                                onChange={(e) => setNewYesterdayIssue({ ...newYesterdayIssue, resolved_status: e.target.value })}
+                                className="h-8 px-2 border rounded-md bg-background text-xs"
+                              >
+                                <option value="Pending">Pending</option>
+                                <option value="In Progress">In Progress</option>
+                                <option value="Completed">Completed</option>
+                              </select>
+                              <Button size="sm" onClick={handleAddYesterdayIssue} className="h-8">
+                                Save
+                              </Button>
+                              <Button 
+                                size="sm" 
+                                variant="outline" 
+                                onClick={() => setIsAddingYesterdayIssue(false)} 
+                                className="h-8"
+                              >
+                                Cancel
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      )}}
                     </tbody>
                   </table>
                 </div>
@@ -451,34 +583,33 @@ export default function ProductionDashboard() {
                   <table className="w-full">
                     <thead>
                       <tr className="border-b border-border">
-                        <th className="text-left py-2 px-3 font-medium text-muted-foreground text-sm">Item</th>
                         <th className="text-left py-2 px-3 font-medium text-muted-foreground text-sm">Description</th>
+                        <th className="text-left py-2 px-3 font-medium text-muted-foreground text-sm">Resolved</th>
                         <th className="text-left py-2 px-3 font-medium text-muted-foreground text-sm">Who</th>
-                        <th className="text-left py-2 px-2 font-medium text-muted-foreground text-sm">Date</th>
+                        <th className="text-left py-2 px-2 font-medium text-muted-foreground text-sm">Whom</th>
                       </tr>
                     </thead>
                     <tbody>
                       {getFilteredTodayIssues().map((row, index) => (
                         <tr
-                          key={index}
-                          className={`${index % 2 === 0 ? "bg-muted/50" : ""} ${row.done === "No" ? "bg-destructive/10" : ""}`}
+                          key={row._id || index}
+                          className={`${index % 2 === 0 ? "bg-muted/50" : ""} ${row.resolved === "No" ? "bg-destructive/10" : ""}`}
                         >
-                          <td className="py-2 px-3 text-sm">{row.item}</td>
                           <td className="py-2 px-3 text-sm">{row.description}</td>
+                          <td className="py-2 px-3 text-sm">
+                            <Badge
+                              variant={row.resolved === "Yes" ? "secondary" : "destructive"}
+                              className={row.resolved === "Yes" ? "bg-primary/10 text-primary" : ""}
+                            >
+                              {row.resolved}
+                            </Badge>
+                          </td>
                           <td className="py-2 px-3 text-sm">{row.who}</td>
-                          <td className="py-2 px-2 text-sm text-muted-foreground">{row.date}</td>
+                          <td className="py-2 px-2 text-sm text-muted-foreground">{row.whom}</td>
                         </tr>
                       ))}
                       {isAddingTodayIssue && (
                         <tr className="bg-accent/50">
-                          <td className="py-2 px-3">
-                            <Input
-                              placeholder="Item name"
-                              value={newTodayIssue.item}
-                              onChange={(e) => setNewTodayIssue({ ...newTodayIssue, item: e.target.value })}
-                              className="h-8"
-                            />
-                          </td>
                           <td className="py-2 px-3">
                             <Input
                               placeholder="Description"
@@ -488,19 +619,44 @@ export default function ProductionDashboard() {
                             />
                           </td>
                           <td className="py-2 px-3">
+                            <select
+                              value={newTodayIssue.resolved}
+                              onChange={(e) => setNewTodayIssue({ ...newTodayIssue, resolved: e.target.value })}
+                              className="h-8 px-3 border rounded-md bg-background"
+                            >
+                              <option value="No">No</option>
+                              <option value="Yes">Yes</option>
+                            </select>
+                          </td>
+                          <td className="py-2 px-3">
+                            <Input
+                              placeholder="Who (assigned by)"
+                              value={newTodayIssue.who}
+                              onChange={(e) => setNewTodayIssue({ ...newTodayIssue, who: e.target.value })}
+                              className="h-8"
+                            />
+                          </td>
+                          <td className="py-2 px-2">
                             <div className="flex gap-2">
                               <Input
-                                placeholder="Assigned to"
-                                value={newTodayIssue.who}
-                                onChange={(e) => setNewTodayIssue({ ...newTodayIssue, who: e.target.value })}
+                                placeholder="Whom (assigned to)"
+                                value={newTodayIssue.whom}
+                                onChange={(e) => setNewTodayIssue({ ...newTodayIssue, whom: e.target.value })}
                                 className="h-8"
                               />
                               <Button size="sm" onClick={handleAddTodayIssue} className="h-8">
                                 Save
                               </Button>
+                              <Button 
+                                size="sm" 
+                                variant="outline" 
+                                onClick={() => setIsAddingTodayIssue(false)} 
+                                className="h-8"
+                              >
+                                Cancel
+                              </Button>
                             </div>
                           </td>
-                          <td className="py-2 px-2 text-sm text-muted-foreground">12/23</td>
                         </tr>
                       )}
                     </tbody>
