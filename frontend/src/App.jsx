@@ -1,49 +1,14 @@
-// import { useState } from 'react'
-// import reactLogo from './assets/react.svg'
-// import viteLogo from '/vite.svg'
-// import './App.css'
-
-// function App() {
-//   const [count, setCount] = useState(0)
-
-//   return (
-//     <>
-//       <div>
-//         <a href="https://vite.dev" target="_blank">
-//           <img src={viteLogo} className="logo" alt="Vite logo" />
-//         </a>
-//         <a href="https://react.dev" target="_blank">
-//           <img src={reactLogo} className="logo react" alt="React logo" />
-//         </a>
-//       </div>
-//       <h1>Vite + React</h1>
-//       <div className="card">
-//         <button onClick={() => setCount((count) => count + 1)}>
-//           count is {count}
-//         </button>
-//         <p>
-//           Edit <code>src/App.jsx</code> and save to test HMR
-//         </p>
-//       </div>
-//       <p className="read-the-docs">
-//         Click on the Vite and React logos to learn more
-//       </p>
-//     </>
-//   )
-// }
-
-// export default App
-
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
-import { Plus, Menu } from "lucide-react"
+import { Plus, Menu, Trash2, Edit } from "lucide-react"
+import { todayAPI, yesterdayAPI, safetyAPI, kudosAPI, healthAPI } from "@/lib/api"
 
 // Sample data
 const processData = [
@@ -51,7 +16,7 @@ const processData = [
     process: "Wafer Prep",
     cycleTime: "2.5h",
     outs: "Batch 12 (45)",
-    wip: "Batch 13 (38)",
+    wip: "Batch 13 (48)",
     yield: "98.2%",
     date: "12/23",
   },
@@ -156,45 +121,292 @@ const repeatabilityData = [
 ]
 
 export default function ProductionDashboard() {
+  // State for API data
+  const [todayIssues, setTodayIssues] = useState([])
+  const [yesterdayIssues, setYesterdayIssues] = useState([])
+  const [safetyIssues, setSafetyIssues] = useState([])
+  const [kudosData, setKudosData] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+  const [apiStatus, setApiStatus] = useState('checking')
+
+  // Form states
   const [newSafetyIssue, setNewSafetyIssue] = useState({ issue: "", person: "", action: "" })
   const [isAddingIssue, setIsAddingIssue] = useState(false)
 
-  const [newKudos, setNewKudos] = useState({ name: "", action: "" })
+  const [newKudos, setNewKudos] = useState({ name: "", action: "", by_whom: "" })
   const [isAddingKudos, setIsAddingKudos] = useState(false)
 
-  const [newTodayIssue, setNewTodayIssue] = useState({ item: "", description: "", who: "" })
+  const [newTodayIssue, setNewTodayIssue] = useState({ description: "", who: "" })
   const [isAddingTodayIssue, setIsAddingTodayIssue] = useState(false)
 
   const [showOnlyIncomplete, setShowOnlyIncomplete] = useState(false)
 
-  const handleAddSafetyIssue = () => {
+  // Load data from API
+  useEffect(() => {
+    loadData()
+    checkApiHealth()
+  }, [])
+
+  const checkApiHealth = async () => {
+    try {
+      await healthAPI.check()
+      setApiStatus('connected')
+    } catch (err) {
+      setApiStatus('disconnected')
+      console.error('API health check failed:', err)
+    }
+  }
+
+  const loadData = async () => {
+    setLoading(true)
+    try {
+      const [todayData, yesterdayData, safetyData, kudosEntries] = await Promise.all([
+        todayAPI.getAll(),
+        yesterdayAPI.getAll(),
+        safetyAPI.getAll(),
+        kudosAPI.getAll()
+      ])
+      
+      // Map API data to frontend format
+      const mappedTodayData = todayData.map(item => ({
+        id: item.id,
+        sr_no: item.id,
+        item: `Issue ${item.id}`,
+        description: item.description,
+        who: item.who,
+        date: item.date,
+        _id: item._id
+      }))
+
+      const mappedYesterdayData = yesterdayData.map(item => ({
+        id: item.id,
+        sr_no: item.id,
+        item: `Issue ${item.id}`,
+        description: item.description,
+        who: item.who,
+        done: item.done,
+        date: item.date,
+        _id: item._id
+      }))
+
+      setTodayIssues(mappedTodayData)
+      setYesterdayIssues(mappedYesterdayData)
+      setSafetyIssues(safetyData) // Load all safety issues, filtering handled in getFilteredSafetyIssues
+      setKudosData(kudosEntries)
+      setError(null)
+    } catch (err) {
+      setError('Failed to load data: ' + err.message)
+      console.error('Failed to load data:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Individual loading functions for targeted refreshes
+  const loadSafetyIssues = async () => {
+    try {
+      const safetyData = await safetyAPI.getAll()
+      setSafetyIssues(safetyData) // Load all safety issues, filtering handled in getFilteredSafetyIssues
+    } catch (err) {
+      console.error('Failed to load safety issues:', err)
+    }
+  }
+
+  const loadKudos = async () => {
+    try {
+      const kudosEntries = await kudosAPI.getAll()
+      setKudosData(kudosEntries)
+    } catch (err) {
+      console.error('Failed to load kudos:', err)
+    }
+  }
+
+  const loadTodayIssues = async () => {
+    try {
+      const todayData = await todayAPI.getAll()
+      const mappedTodayData = todayData.map(item => ({
+        id: item.id,
+        sr_no: item.id,
+        item: `Issue ${item.id}`,
+        description: item.description,
+        who: item.who,
+        date: item.date,
+        _id: item._id
+      }))
+      setTodayIssues(mappedTodayData)
+    } catch (err) {
+      console.error('Failed to load today issues:', err)
+    }
+  }
+
+  const loadYesterdayIssues = async () => {
+    try {
+      const yesterdayData = await yesterdayAPI.getAll()
+      const mappedYesterdayData = yesterdayData.map(item => ({
+        id: item.id,
+        sr_no: item.id,
+        item: `Issue ${item.id}`,
+        description: item.description,
+        who: item.who,
+        done: item.done,
+        date: item.date,
+        _id: item._id
+      }))
+      setYesterdayIssues(mappedYesterdayData)
+    } catch (err) {
+      console.error('Failed to load yesterday issues:', err)
+    }
+  }
+
+  const handleAddSafetyIssue = async () => {
     if (newSafetyIssue.issue && newSafetyIssue.person && newSafetyIssue.action) {
-      // In a real app, this would update the database
-      setNewSafetyIssue({ issue: "", person: "", action: "" })
-      setIsAddingIssue(false)
+      try {
+        await safetyAPI.create({
+          issue: newSafetyIssue.issue,
+          person: newSafetyIssue.person,
+          action: newSafetyIssue.action
+        })
+        
+        setNewSafetyIssue({ issue: "", person: "", action: "" })
+        setIsAddingIssue(false)
+        await loadSafetyIssues() // Reload only safety issues
+      } catch (err) {
+        setError('Failed to add safety issue: ' + err.message)
+      }
     }
   }
 
-  const handleAddKudos = () => {
-    if (newKudos.name && newKudos.action) {
-      setNewKudos({ name: "", action: "" })
-      setIsAddingKudos(false)
+  const handleAddKudos = async () => {
+    if (newKudos.name && newKudos.action && newKudos.by_whom) {
+      try {
+        await kudosAPI.create({
+          name: newKudos.name,
+          action: newKudos.action,
+          by_whom: newKudos.by_whom
+        })
+        
+        setNewKudos({ name: "", action: "", by_whom: "" })
+        setIsAddingKudos(false)
+        await loadKudos() // Reload only kudos
+      } catch (err) {
+        setError('Failed to add kudos: ' + err.message)
+      }
     }
   }
 
-  const handleAddTodayIssue = () => {
-    if (newTodayIssue.item && newTodayIssue.description && newTodayIssue.who) {
-      setNewTodayIssue({ item: "", description: "", who: "" })
-      setIsAddingTodayIssue(false)
+  const handleAddTodayIssue = async () => {
+    if (newTodayIssue.description && newTodayIssue.who) {
+      try {
+        await todayAPI.create({
+          description: newTodayIssue.description,
+          who: newTodayIssue.who
+        })
+        
+        setNewTodayIssue({ description: "", who: "" })
+        setIsAddingTodayIssue(false)
+        
+        // Reload both today and yesterday issues since backend adds to both
+        await Promise.all([
+          loadTodayIssues(),
+          loadYesterdayIssues()
+        ])
+        
+        // Show a brief success message
+        setError(null)
+      } catch (err) {
+        setError('Failed to add issue: ' + err.message)
+      }
+    }
+  }
+
+  const handleDeleteTodayIssue = async (id) => {
+    try {
+      await todayAPI.delete(id)
+      await loadTodayIssues() // Reload only today issues
+    } catch (err) {
+      setError('Failed to delete issue: ' + err.message)
+    }
+  }
+
+  const handleDeleteYesterdayIssue = async (id) => {
+    try {
+      await yesterdayAPI.delete(id)
+      await loadYesterdayIssues() // Reload only yesterday issues table
+    } catch (err) {
+      setError('Failed to delete issue: ' + err.message)
+    }
+  }
+
+  const handleToggleYesterdayStatus = async (id, currentStatus) => {
+    try {
+      const newStatus = currentStatus === 'Yes' ? 'No' : 'Yes'
+      
+      await yesterdayAPI.update(id, { done: newStatus })
+      await loadYesterdayIssues() // Reload only yesterday issues table
+    } catch (err) {
+      setError('Failed to update status: ' + err.message)
+    }
+  }
+
+  const handleDeleteSafetyIssue = async (id) => {
+    try {
+      await safetyAPI.delete(id)
+      await loadSafetyIssues() // Reload only safety issues table
+    } catch (err) {
+      setError('Failed to delete safety issue: ' + err.message)
+    }
+  }
+
+  const handleDeleteKudos = async (id) => {
+    try {
+      await kudosAPI.delete(id)
+      await loadKudos() // Reload only kudos table
+    } catch (err) {
+      setError('Failed to delete kudos: ' + err.message)
     }
   }
 
   const getFilteredYesterdayIssues = () => {
-    return showOnlyIncomplete ? yesterdayIssues.filter((issue) => issue.done === "No") : yesterdayIssues
+    // Show incomplete issues first, then completed ones (max 10 total)
+    const incomplete = yesterdayIssues.filter((issue) => issue.done === "No")
+    const completed = yesterdayIssues.filter((issue) => issue.done === "Yes")
+    
+    if (showOnlyIncomplete) {
+      return incomplete.slice(-10) // Show last 10 incomplete only
+    }
+    
+    // Show incomplete first, then completed (total max 10)
+    const incompleteToShow = incomplete.slice(-10)
+    const completedToShow = completed.slice(-(10 - incompleteToShow.length))
+    
+    return [...incompleteToShow, ...completedToShow]
   }
 
   const getFilteredTodayIssues = () => {
-    return showOnlyIncomplete ? todayIssues.filter((issue) => issue.done === "No") : todayIssues
+    // Show last 10 today's issues for consistent scrolling experience
+    return todayIssues.slice(-10)
+  }
+
+  const getFilteredKudosData = () => {
+    // Show last 10 kudos entries for consistent scrolling experience
+    return kudosData.slice(-10)
+  }
+
+  const getFilteredSafetyIssues = () => {
+    // Show last 10 safety issues for consistent scrolling experience
+    return safetyIssues.slice(-10)
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background dark flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading dashboard...</p>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -204,14 +416,33 @@ export default function ProductionDashboard() {
         <div className="flex h-16 items-center px-6">
           <div className="flex items-center space-x-4">
             <h1 className="text-xl font-semibold text-foreground">Production Dashboard</h1>
+            {/* API Status Indicator */}
+            <div className="flex items-center space-x-2">
+              <div className={`h-2 w-2 rounded-full ${
+                apiStatus === 'connected' ? 'bg-green-500' : 
+                apiStatus === 'disconnected' ? 'bg-red-500' : 'bg-yellow-500'
+              }`} />
+              <span className="text-sm text-muted-foreground">
+                {apiStatus === 'connected' ? 'API Connected' : 
+                 apiStatus === 'disconnected' ? 'API Disconnected' : 'Checking API...'}
+              </span>
+            </div>
           </div>
           <div className="ml-auto flex items-center space-x-4">
+            <Button variant="ghost" onClick={loadData} className="text-muted-foreground hover:text-foreground">
+              Refresh Data
+            </Button>
             <Button variant="ghost" className="text-muted-foreground hover:text-foreground">
               <Menu className="h-4 w-4 mr-2" />
               Explore
             </Button>
           </div>
         </div>
+        {error && (
+          <div className="bg-destructive/10 border-destructive/20 border-b px-6 py-2">
+            <p className="text-destructive text-sm">{error}</p>
+          </div>
+        )}
       </nav>
 
       <div className="p-6 space-y-6">
@@ -265,20 +496,20 @@ export default function ProductionDashboard() {
               </Button>
             </CardHeader>
             <CardContent>
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-border">
-                      <th className="text-left py-2 px-3 font-medium text-muted-foreground text-sm">Issues</th>
-                      <th className="text-left py-2 px-3 font-medium text-muted-foreground text-sm">
-                        Person In Charge
-                      </th>
-                      <th className="text-left py-2 px-3 font-medium text-muted-foreground text-sm">Action</th>
-                      <th className="text-left py-2 px-2 font-medium text-muted-foreground text-sm">Date</th>
-                    </tr>
-                  </thead>
+                                <div className="overflow-auto max-h-96 border border-gray-200 rounded">
+                  <table className="w-full">
+                    <thead className="bg-gray-800 sticky top-0 z-10">
+                      <tr className="border-b border-border">
+                        <th className="text-left py-3 px-3 font-medium text-white text-sm bg-gray-800">Issue #</th>
+                        <th className="text-left py-3 px-3 font-medium text-white text-sm bg-gray-800">Description</th>
+                        <th className="text-left py-3 px-3 font-medium text-white text-sm bg-gray-800">Done?</th>
+                        <th className="text-left py-3 px-3 font-medium text-white text-sm bg-gray-800">Who</th>
+                        <th className="text-left py-3 px-2 font-medium text-white text-sm bg-gray-800">Date</th>
+                        <th className="text-left py-3 px-2 font-medium text-white text-sm bg-gray-800">Actions</th>
+                      </tr>
+                    </thead>
                   <tbody>
-                    {safetyIssues.map((row, index) => (
+                    {getFilteredSafetyIssues().map((row, index) => (
                       <tr key={index} className={index % 2 === 0 ? "bg-muted/50" : ""}>
                         <td className="py-2 px-3 text-sm">{row.issue}</td>
                         <td className="py-2 px-3 text-sm">{row.person}</td>
@@ -336,20 +567,22 @@ export default function ProductionDashboard() {
               </Button>
             </CardHeader>
             <CardContent>
-              <div className="overflow-x-auto">
+              <div className="overflow-auto max-h-96 border border-gray-200 rounded">
                 <table className="w-full">
-                  <thead>
+                  <thead className="bg-gray-800 sticky top-0 z-10">
                     <tr className="border-b border-border">
-                      <th className="text-left py-2 px-3 font-medium text-muted-foreground text-sm">Name</th>
-                      <th className="text-left py-2 px-3 font-medium text-muted-foreground text-sm">Action</th>
-                      <th className="text-left py-2 px-2 font-medium text-muted-foreground text-sm">Date</th>
+                      <th className="text-left py-3 px-3 font-medium text-white text-sm bg-gray-800">Name</th>
+                      <th className="text-left py-3 px-3 font-medium text-white text-sm bg-gray-800">Action</th>
+                      <th className="text-left py-3 px-3 font-medium text-white text-sm bg-gray-800">By Whom</th>
+                      <th className="text-left py-3 px-2 font-medium text-white text-sm bg-gray-800">Date</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {kudosData.map((row, index) => (
+                    {getFilteredKudosData().map((row, index) => (
                       <tr key={index} className={index % 2 === 0 ? "bg-muted/50" : ""}>
                         <td className="py-2 px-3 text-sm font-medium">{row.name}</td>
                         <td className="py-2 px-3 text-sm">{row.action}</td>
+                        <td className="py-2 px-3 text-sm">{row.by_whom || ""}</td>
                         <td className="py-2 px-2 text-sm text-muted-foreground">{row.date}</td>
                       </tr>
                     ))}
@@ -364,19 +597,26 @@ export default function ProductionDashboard() {
                           />
                         </td>
                         <td className="py-2 px-3">
-                          <div className="flex gap-2">
-                            <Input
-                              placeholder="Action description"
-                              value={newKudos.action}
-                              onChange={(e) => setNewKudos({ ...newKudos, action: e.target.value })}
-                              className="h-8"
-                            />
-                            <Button size="sm" onClick={handleAddKudos} className="h-8">
-                              Save
-                            </Button>
-                          </div>
+                          <Input
+                            placeholder="Action description"
+                            value={newKudos.action}
+                            onChange={(e) => setNewKudos({ ...newKudos, action: e.target.value })}
+                            className="h-8"
+                          />
                         </td>
-                        <td className="py-2 px-2 text-sm text-muted-foreground">12/23</td>
+                        <td className="py-2 px-3">
+                          <Input
+                            placeholder="Given by whom"
+                            value={newKudos.by_whom}
+                            onChange={(e) => setNewKudos({ ...newKudos, by_whom: e.target.value })}
+                            className="h-8"
+                          />
+                        </td>
+                        <td className="py-2 px-2">
+                          <Button size="sm" onClick={handleAddKudos} className="h-8">
+                            Save
+                          </Button>
+                        </td>
                       </tr>
                     )}
                   </tbody>
@@ -389,54 +629,85 @@ export default function ProductionDashboard() {
         {/* Top Issues */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-balance">Top Issues</CardTitle>
-            <div className="flex items-center gap-4">
-              <div className="flex items-center space-x-2">
-                <Checkbox id="incomplete-filter" checked={showOnlyIncomplete} onCheckedChange={setShowOnlyIncomplete} />
-                <label htmlFor="incomplete-filter" className="text-sm text-muted-foreground">
-                  Show only incomplete
-                </label>
+            <div>
+              <CardTitle className="text-balance">Top Issues</CardTitle>
+              <div className="text-sm text-muted-foreground mt-1">
+                📋 <strong>Workflow:</strong> Today's issues → Appear here as incomplete → Mark complete when done
               </div>
+            </div>
+            <div className="flex items-center gap-4">
               <Button size="sm" onClick={() => setIsAddingTodayIssue(true)} className="bg-primary hover:bg-primary/90">
                 <Plus className="h-4 w-4 mr-2" />
-                Add Top Issues
+                Add Today Issue
               </Button>
+              <div className="text-xs text-muted-foreground">
+                Items added here automatically appear in "Top Issues" section as incomplete
+              </div>
             </div>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Yesterday's Issues */}
               <div>
-                <h3 className="font-medium mb-3 text-muted-foreground">Top Issues from Yesterday</h3>
-                <div className="overflow-x-auto">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-medium text-muted-foreground">Top Issues (Track Completion)</h3>
+                  <div className="flex items-center space-x-2">
+                    <Checkbox id="incomplete-filter" checked={showOnlyIncomplete} onCheckedChange={setShowOnlyIncomplete} />
+                    <label htmlFor="incomplete-filter" className="text-xs text-muted-foreground">
+                      Show only incomplete
+                    </label>
+                  </div>
+                </div>
+                <div className="text-xs text-muted-foreground mb-2">
+                  Issues from "Today's Top Issues" appear here as incomplete. Mark them complete when done.
+                </div>
+                <div className="overflow-auto max-h-96 border border-gray-200 rounded">
                   <table className="w-full">
-                    <thead>
+                    <thead className="bg-gray-800 sticky top-0 z-10">
                       <tr className="border-b border-border">
-                        <th className="text-left py-2 px-3 font-medium text-muted-foreground text-sm">Item</th>
-                        <th className="text-left py-2 px-3 font-medium text-muted-foreground text-sm">Description</th>
-                        <th className="text-left py-2 px-3 font-medium text-muted-foreground text-sm">Done?</th>
-                        <th className="text-left py-2 px-3 font-medium text-muted-foreground text-sm">Who</th>
-                        <th className="text-left py-2 px-2 font-medium text-muted-foreground text-sm">Date</th>
+                        <th className="text-left py-3 px-3 font-medium text-white text-sm bg-gray-800">Issue #</th>
+                        <th className="text-left py-3 px-3 font-medium text-white text-sm bg-gray-800">Description</th>
+                        <th className="text-left py-3 px-3 font-medium text-white text-sm bg-gray-800">Done?</th>
+                        <th className="text-left py-3 px-3 font-medium text-white text-sm bg-gray-800">Who</th>
+                        <th className="text-left py-3 px-2 font-medium text-white text-sm bg-gray-800">Date</th>
+                        <th className="text-left py-3 px-2 font-medium text-white text-sm bg-gray-800">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
                       {getFilteredYesterdayIssues().map((row, index) => (
                         <tr
-                          key={index}
+                          key={row.sr_no}
                           className={`${index % 2 === 0 ? "bg-muted/50" : ""} ${row.done === "No" ? "bg-destructive/10" : ""}`}
                         >
-                          <td className="py-2 px-3 text-sm">{row.item}</td>
+                          <td className="py-2 px-3 text-sm font-medium">#{row.sr_no}</td>
                           <td className="py-2 px-3 text-sm">{row.description}</td>
                           <td className="py-2 px-3 text-sm">
-                            <Badge
-                              variant={row.done === "Yes" ? "secondary" : "destructive"}
-                              className={row.done === "Yes" ? "bg-primary/10 text-primary" : ""}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleToggleYesterdayStatus(row.sr_no, row.done)}
+                              className="p-0 h-auto"
                             >
-                              {row.done}
-                            </Badge>
+                              <Badge
+                                variant={row.done === "Yes" ? "secondary" : "destructive"}
+                                className={`cursor-pointer ${row.done === "Yes" ? "bg-primary/10 text-primary" : ""}`}
+                              >
+                                {row.done}
+                              </Badge>
+                            </Button>
                           </td>
                           <td className="py-2 px-3 text-sm">{row.who}</td>
                           <td className="py-2 px-2 text-sm text-muted-foreground">{row.date}</td>
+                          <td className="py-2 px-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDeleteYesterdayIssue(row.sr_no)}
+                              className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -446,61 +717,76 @@ export default function ProductionDashboard() {
 
               {/* Today's Issues */}
               <div>
-                <h3 className="font-medium mb-3 text-muted-foreground">Top Issues from Today</h3>
-                <div className="overflow-x-auto">
+                <h3 className="font-medium mb-3 text-muted-foreground">Today's Top Issues (Standup Items)</h3>
+                <div className="text-xs text-muted-foreground mb-2">
+                  Add today's issues for standup. They will automatically appear in "Top Issues" section for tracking.
+                </div>
+                <div className="overflow-auto max-h-96 border border-gray-200 rounded">
                   <table className="w-full">
-                    <thead>
+                    <thead className="bg-gray-800 sticky top-0 z-10">
                       <tr className="border-b border-border">
-                        <th className="text-left py-2 px-3 font-medium text-muted-foreground text-sm">Item</th>
-                        <th className="text-left py-2 px-3 font-medium text-muted-foreground text-sm">Description</th>
-                        <th className="text-left py-2 px-3 font-medium text-muted-foreground text-sm">Who</th>
-                        <th className="text-left py-2 px-2 font-medium text-muted-foreground text-sm">Date</th>
+                        <th className="text-left py-3 px-3 font-medium text-white text-sm bg-gray-800">Issue #</th>
+                        <th className="text-left py-3 px-3 font-medium text-white text-sm bg-gray-800">Description</th>
+                        <th className="text-left py-3 px-3 font-medium text-white text-sm bg-gray-800">Who</th>
+                        <th className="text-left py-3 px-2 font-medium text-white text-sm bg-gray-800">Date</th>
+                        <th className="text-left py-3 px-2 font-medium text-white text-sm bg-gray-800">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
                       {getFilteredTodayIssues().map((row, index) => (
                         <tr
-                          key={index}
+                          key={row.sr_no}
                           className={`${index % 2 === 0 ? "bg-muted/50" : ""} ${row.done === "No" ? "bg-destructive/10" : ""}`}
                         >
-                          <td className="py-2 px-3 text-sm">{row.item}</td>
+                          <td className="py-2 px-3 text-sm font-medium">#{row.sr_no}</td>
                           <td className="py-2 px-3 text-sm">{row.description}</td>
                           <td className="py-2 px-3 text-sm">{row.who}</td>
                           <td className="py-2 px-2 text-sm text-muted-foreground">{row.date}</td>
+                          <td className="py-2 px-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDeleteTodayIssue(row.sr_no)}
+                              className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </td>
                         </tr>
                       ))}
                       {isAddingTodayIssue && (
                         <tr className="bg-accent/50">
+                          <td className="py-2 px-3 text-sm text-muted-foreground">Auto</td>
                           <td className="py-2 px-3">
                             <Input
-                              placeholder="Item name"
-                              value={newTodayIssue.item}
-                              onChange={(e) => setNewTodayIssue({ ...newTodayIssue, item: e.target.value })}
-                              className="h-8"
-                            />
-                          </td>
-                          <td className="py-2 px-3">
-                            <Input
-                              placeholder="Description"
+                              placeholder="Issue description"
                               value={newTodayIssue.description}
                               onChange={(e) => setNewTodayIssue({ ...newTodayIssue, description: e.target.value })}
                               className="h-8"
                             />
                           </td>
                           <td className="py-2 px-3">
-                            <div className="flex gap-2">
+                            <Input
+                              placeholder="Assigned to"
+                              value={newTodayIssue.who}
+                              onChange={(e) => setNewTodayIssue({ ...newTodayIssue, who: e.target.value })}
+                              className="h-8"
+                            />
+                          </td>
+                          <td className="py-2 px-2 text-sm text-muted-foreground">Today</td>
+                          <td className="py-2 px-2">
+                            <div className="flex gap-1">
                               <Input
-                                placeholder="Assigned to"
-                                value={newTodayIssue.who}
-                                onChange={(e) => setNewTodayIssue({ ...newTodayIssue, who: e.target.value })}
-                                className="h-8"
+                                placeholder="Whom"
+                                value={newTodayIssue.whom}
+                                onChange={(e) => setNewTodayIssue({ ...newTodayIssue, whom: e.target.value })}
+                                className="h-8 w-20"
                               />
                               <Button size="sm" onClick={handleAddTodayIssue} className="h-8">
                                 Save
                               </Button>
                             </div>
                           </td>
-                          <td className="py-2 px-2 text-sm text-muted-foreground">12/23</td>
                         </tr>
                       )}
                     </tbody>
