@@ -9,6 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
 import { Plus, Menu, Trash2, Edit } from "lucide-react"
 import { todayAPI, yesterdayAPI, safetyAPI, kudosAPI, healthAPI } from "@/lib/api"
+import ParameterChart from "@/components/ParameterChart"
 
 // Sample data
 const processData = [
@@ -91,17 +92,6 @@ const todayIssues = [
 ]
 
 // Chart data
-const pceData = [
-  { batch: "B1", pce: 85 },
-  { batch: "B2", pce: 88 },
-  { batch: "B3", pce: 92 },
-  { batch: "B4", pce: 87 },
-  { batch: "B5", pce: 94 },
-  { batch: "B6", pce: 91 },
-  { batch: "B7", pce: 89 },
-  { batch: "B8", pce: 96 },
-]
-
 const yieldData = [
   { time: "00:00", yield: 97.2 },
   { time: "04:00", yield: 97.8 },
@@ -799,30 +789,8 @@ export default function ProductionDashboard() {
 
         {/* Charts */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* PCE vs Batch */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-balance">PCE vs Batch</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={200}>
-                <BarChart data={pceData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#3b82f6" opacity={0.2} />
-                  <XAxis dataKey="batch" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
-                  <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "#1e293b",
-                      border: "1px solid #3b82f6",
-                      borderRadius: "8px",
-                      color: "#f1f5f9",
-                    }}
-                  />
-                  <Bar dataKey="pce" fill="#3b82f6" radius={[4, 4, 0, 0]} stroke="#1d4ed8" strokeWidth={1} />
-                </BarChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
+          {/* Parameter Chart - replaces PCE vs Batch */}
+          <ParameterChart />
 
           {/* Device Yield */}
           <Card>

@@ -759,6 +759,40 @@ def create_flask_app():
         elif request.method == 'DELETE':
             return api.delete_yesterday_issue(request, issue_id)
     
+    # Chart Data Endpoints
+    @app.route('/api/charts/parameters', methods=['GET'])
+    def get_chart_parameters():
+        """Get list of available chart parameters."""
+        try:
+            from data_processor import get_all_parameters
+            parameters = get_all_parameters()
+            return jsonify({
+                'success': True,
+                'parameters': parameters
+            })
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'error': str(e)
+            }), 500
+    
+    @app.route('/api/charts/data/<parameter>', methods=['GET'])
+    def get_chart_data(parameter):
+        """Get chart data for a specific parameter."""
+        try:
+            from data_processor import get_parameter_data
+            data = get_parameter_data(parameter)
+            return jsonify({
+                'success': True,
+                'parameter': parameter,
+                'data': data
+            })
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'error': str(e)
+            }), 500
+    
     return app
 
 # Local development server

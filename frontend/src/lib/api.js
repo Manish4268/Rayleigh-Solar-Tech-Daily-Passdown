@@ -145,3 +145,18 @@ export const healthAPI = {
     return handleResponse(response);
   },
 };
+
+// Chart data API functions
+export const chartAPI = {
+  // Get available parameters
+  getParameters: async () => {
+    const response = await fetch(`${API_BASE_URL}/charts/parameters`);
+    return handleResponse(response);
+  },
+
+  // Get data for a specific parameter
+  getData: async (parameter) => {
+    const response = await fetch(`${API_BASE_URL}/charts/data/${parameter}`);
+    return handleResponse(response);
+  },
+};
