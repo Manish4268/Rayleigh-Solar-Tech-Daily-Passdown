@@ -793,6 +793,70 @@ def create_flask_app():
                 'error': str(e)
             }), 500
     
+    # Parquet Data Endpoints
+    @app.route('/api/process-information', methods=['GET'])
+    def get_process_info():
+        """Get process information data from parquet files using REAL data only."""
+        try:
+            from real_data_processor import get_process_information
+            result = get_process_information()
+            return jsonify(result)
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'error': f"Real data processor failed: {str(e)}",
+                'data': [],
+                'source': 'error'
+            }), 500
+            # COMMENTED OUT: Fallback to simulated data - we only want real data
+            # try:
+            #     from parquet_processor import get_process_information
+            #     result = get_process_information()
+            #     return jsonify(result)
+            # except Exception as e2:
+            #     return jsonify({
+            #         'success': False,
+            #         'error': f"Both real and simulated processors failed: {str(e)}, {str(e2)}",
+            #         'data': [],
+            #         'source': 'error'
+            #     }), 500
+    
+    @app.route('/api/equipment', methods=['GET'])
+    def get_equipment():
+        """Get equipment list from parquet files using REAL data only."""
+        try:
+            from real_data_processor import get_equipment_list
+            result = get_equipment_list()
+            return jsonify(result)
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'error': f"Real data processor failed: {str(e)}"
+            }), 500
+            # COMMENTED OUT: Fallback to simulated data - we only want real data
+            # try:
+            #     from parquet_processor import get_equipment_list
+            #     result = get_equipment_list()
+            #     return jsonify(result)
+            # except Exception as e2:
+            #     return jsonify({
+            #         'success': False,
+            #         'error': f"Both real and simulated processors failed: {str(e)}, {str(e2)}"
+            #     }), 500
+    
+    @app.route('/api/data-summary', methods=['GET'])
+    def get_data_summary():
+        """Get a summary of the real data being used."""
+        try:
+            from real_data_processor import get_data_summary
+            result = get_data_summary()
+            return jsonify(result)
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'error': str(e)
+            }), 500
+    
     return app
 
 # Local development server

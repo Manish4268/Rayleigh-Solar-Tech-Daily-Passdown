@@ -184,6 +184,7 @@ export default function ProductionDashboard() {
       setYesterdayIssues(mappedYesterdayData)
       setSafetyIssues(safetyData) // Load all safety issues, filtering handled in getFilteredSafetyIssues
       setKudosData(kudosEntries)
+      
       setError(null)
     } catch (err) {
       setError('Failed to load data: ' + err.message)

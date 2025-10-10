@@ -160,3 +160,21 @@ export const chartAPI = {
     return handleResponse(response);
   },
 };
+
+// Process Information API functions
+export const processAPI = {
+  // Get process information from parquet data
+  getAll: async () => {
+    const response = await fetch(`${API_BASE_URL}/process-information`);
+    return handleResponse(response);
+  },
+};
+
+// Equipment API functions
+export const equipmentAPI = {
+  // Get equipment list from parquet data
+  getAll: async () => {
+    const response = await fetch(`${API_BASE_URL}/equipment`);
+    return handleResponse(response);
+  },
+};
