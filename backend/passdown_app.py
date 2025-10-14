@@ -871,7 +871,7 @@ def create_flask_app():
             
             elif request.method == 'POST':
                 data = request.get_json()
-                required_fields = ['sectionKey', 'subsectionKey', 'row', 'col', 'deviceId', 'inDate', 'outDate', 'timeHours', 'createdBy']
+                required_fields = ['sectionKey', 'subsectionKey', 'row', 'col', 'deviceId', 'inDate', 'inTime', 'timeHours', 'createdBy']
                 
                 if not all(field in data for field in required_fields):
                     return jsonify({'success': False, 'error': 'Missing required fields'}), 400
@@ -883,7 +883,7 @@ def create_flask_app():
                     col=data['col'],
                     device_id=data['deviceId'],
                     in_date=data['inDate'],
-                    out_date=data['outDate'],
+                    in_time=data['inTime'],
                     time_hours=data['timeHours'],
                     created_by=data['createdBy']
                 )
@@ -937,7 +937,7 @@ def create_flask_app():
                     col=col,
                     new_device_id=data.get('deviceId'),
                     in_date=data.get('inDate'),
-                    out_date=data.get('outDate'),
+                    in_time=data.get('inTime'),
                     time_hours=data.get('timeHours'),
                     updated_by=data.get('updatedBy', 'unknown')
                 )
@@ -998,11 +998,30 @@ def create_flask_app():
             # Format history for frontend
             formatted_history = []
             for item in history:
+                # Handle date formatting - support both string and datetime objects
+                in_date = item.get("in_date", "")
+                if hasattr(in_date, 'strftime'):
+                    in_date = in_date.strftime("%Y-%m-%d")
+                elif isinstance(in_date, str) and len(in_date) >= 10:
+                    in_date = in_date[:10]
+                
+                out_date = item.get("out_date", "")
+                if hasattr(out_date, 'strftime'):
+                    out_date = out_date.strftime("%Y-%m-%d")
+                elif isinstance(out_date, str) and len(out_date) >= 10:
+                    out_date = out_date[:10]
+                
                 formatted_history.append({
-                    "id": item["device_id"],
-                    "inDate": item["in_date"][:10] if isinstance(item["in_date"], str) else item["in_date"].strftime("%Y-%m-%d"),
-                    "outDate": item["out_date"][:10] if isinstance(item["out_date"], str) else item["out_date"].strftime("%Y-%m-%d"),
-                    "time": item["time_hours"]
+                    "deviceId": item["device_id"],
+                    "inDate": in_date,
+                    "inTime": item.get("in_time", ""),
+                    "outDate": out_date,
+                    "outTime": item.get("out_time", ""),
+                    "timeHours": item["time_hours"],
+                    "placedBy": item.get("created_by", "unknown"),
+                    "removedBy": item.get("removed_by", "unknown"),
+                    "placedAt": item.get("original_created_at", "").isoformat() if hasattr(item.get("original_created_at", ""), 'isoformat') else item.get("original_created_at", ""),
+                    "removedAt": item.get("moved_to_history_at", "").isoformat() if hasattr(item.get("moved_to_history_at", ""), 'isoformat') else item.get("moved_to_history_at", "")
                 })
             
             # Close connections if needed
@@ -1013,6 +1032,76 @@ def create_flask_app():
             return jsonify({
                 'success': True,
                 'history': formatted_history
+            })
+            
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)}), 500
+
+    @app.route('/api/stability/auto-remove', methods=['POST'])
+    def auto_remove_expired_devices():
+        """Automatically remove expired devices based on time_hours"""
+        try:
+            if not STABILITY_MODELS_AVAILABLE:
+                return jsonify({'success': False, 'error': 'Stability models not available'}), 500
+            
+            # Use the working database connection from homepage
+            api = PassdownAPI()
+            db_manager = api._get_db_connection()
+            if not db_manager:
+                return jsonify({'success': False, 'error': 'Database connection failed'}), 500
+                
+            # Create a stability database manager using the working connection
+            stability_db = StabilityDatabaseManager()
+            stability_db.client = db_manager.client
+            stability_db.db = db_manager.db
+            
+            device_model = StabilityDeviceModel(stability_db)
+            removed_count = device_model.auto_remove_expired_devices()
+            
+            # Close connections if needed
+            if hasattr(db_manager, 'close_connection'):
+                db_manager.close_connection()
+            elif hasattr(db_manager, 'close'):
+                db_manager.close()
+            return jsonify({
+                'success': True,
+                'message': f'Automatically removed {removed_count} expired devices',
+                'removed_count': removed_count
+            })
+            
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)}), 500
+
+    @app.route('/api/stability/check-expired', methods=['GET'])
+    def check_expired_devices():
+        """Check for devices that have exceeded their time_hours"""
+        try:
+            if not STABILITY_MODELS_AVAILABLE:
+                return jsonify({'success': False, 'error': 'Stability models not available'}), 500
+            
+            # Use the working database connection from homepage
+            api = PassdownAPI()
+            db_manager = api._get_db_connection()
+            if not db_manager:
+                return jsonify({'success': False, 'error': 'Database connection failed'}), 500
+                
+            # Create a stability database manager using the working connection
+            stability_db = StabilityDatabaseManager()
+            stability_db.client = db_manager.client
+            stability_db.db = db_manager.db
+            
+            device_model = StabilityDeviceModel(stability_db)
+            expired_devices = device_model.check_expired_devices()
+            
+            # Close connections if needed
+            if hasattr(db_manager, 'close_connection'):
+                db_manager.close_connection()
+            elif hasattr(db_manager, 'close'):
+                db_manager.close()
+            return jsonify({
+                'success': True,
+                'expired_devices': expired_devices,
+                'count': len(expired_devices)
             })
             
         except Exception as e:

@@ -261,8 +261,55 @@ class StabilityDeviceModel:
             ])
             print(f"Created collection: {self.collection_name}")
     
+    def _parse_datetime(self, date_str: str, time_str: str) -> datetime:
+        """Parse date and time strings into a datetime object"""
+        try:
+            # Combine date and time strings and parse
+            datetime_str = f"{date_str} {time_str}"
+            return datetime.strptime(datetime_str, '%Y-%m-%d %H:%M')
+        except ValueError as e:
+            raise Exception(f"Invalid date/time format. Expected YYYY-MM-DD for date and HH:MM for time: {str(e)}")
+    
+    def check_expired_devices(self) -> List[Dict]:
+        """Check for devices that have exceeded their time_hours and should be auto-removed"""
+        try:
+            current_time = datetime.utcnow()
+            expired_devices = list(self.collection.find({
+                "status": "active",
+                "out_datetime": {"$lte": current_time}
+            }))
+            
+            for device in expired_devices:
+                device["_id"] = str(device["_id"])
+            
+            return expired_devices
+        except Exception as e:
+            raise Exception(f"Failed to check expired devices: {str(e)}")
+    
+    def auto_remove_expired_devices(self) -> int:
+        """Automatically remove expired devices and return count of removed devices"""
+        try:
+            expired_devices = self.check_expired_devices()
+            removed_count = 0
+            
+            for device in expired_devices:
+                # Soft delete the device with 'system' as remover
+                success = self.soft_delete(
+                    section_key=device['section_key'],
+                    subsection_key=device['subsection_key'],
+                    row=device['row'],
+                    col=device['col'],
+                    removed_by='system'
+                )
+                if success:
+                    removed_count += 1
+            
+            return removed_count
+        except Exception as e:
+            raise Exception(f"Failed to auto-remove expired devices: {str(e)}")
+    
     def create(self, section_key: str, subsection_key: str, row: int, col: int,
-               device_id: str, in_date: str, out_date: str, time_hours: int, 
+               device_id: str, in_date: str, in_time: str, time_hours: int, 
                created_by: str) -> Dict:
         """Create a new stability device entry"""
         try:
@@ -271,14 +318,25 @@ class StabilityDeviceModel:
             if existing:
                 raise Exception(f"Slot {row}-{col} in {section_key}/{subsection_key} is already occupied")
             
+            # Parse in_date and in_time to create full datetime
+            in_datetime = self._parse_datetime(in_date, in_time)
+            
+            # Calculate out_date and out_time based on in_datetime + time_hours
+            from datetime import timedelta
+            out_datetime = in_datetime + timedelta(hours=time_hours)
+            
             entry = {
                 "section_key": section_key,
                 "subsection_key": subsection_key,
                 "row": row,
                 "col": col,
                 "device_id": device_id,
-                "in_date": datetime.fromisoformat(in_date.replace('Z', '+00:00')) if isinstance(in_date, str) else in_date,
-                "out_date": datetime.fromisoformat(out_date.replace('Z', '+00:00')) if isinstance(out_date, str) else out_date,
+                "in_date": in_datetime.strftime('%Y-%m-%d'),
+                "in_time": in_datetime.strftime('%H:%M'),
+                "in_datetime": in_datetime,
+                "out_date": out_datetime.strftime('%Y-%m-%d'),
+                "out_time": out_datetime.strftime('%H:%M'),
+                "out_datetime": out_datetime,
                 "time_hours": time_hours,
                 "status": "active",
                 "created_by": created_by,
@@ -298,10 +356,15 @@ class StabilityDeviceModel:
             entries = list(self.collection.find({"status": "active"}))
             for entry in entries:
                 entry["_id"] = str(entry["_id"])
-                # Convert dates to ISO string format for JSON serialization
-                if "in_date" in entry:
+                # Convert datetime objects to strings for JSON serialization
+                if "in_datetime" in entry and hasattr(entry["in_datetime"], 'isoformat'):
+                    entry["in_datetime"] = entry["in_datetime"].isoformat()
+                if "out_datetime" in entry and hasattr(entry["out_datetime"], 'isoformat'):
+                    entry["out_datetime"] = entry["out_datetime"].isoformat()
+                # Legacy support for old date fields
+                if "in_date" in entry and hasattr(entry["in_date"], 'isoformat'):
                     entry["in_date"] = entry["in_date"].isoformat() if hasattr(entry["in_date"], 'isoformat') else entry["in_date"]
-                if "out_date" in entry:
+                if "out_date" in entry and hasattr(entry["out_date"], 'isoformat'):
                     entry["out_date"] = entry["out_date"].isoformat() if hasattr(entry["out_date"], 'isoformat') else entry["out_date"]
             return entries
         except Exception as e:
@@ -319,28 +382,56 @@ class StabilityDeviceModel:
             })
             if entry:
                 entry["_id"] = str(entry["_id"])
-                if "in_date" in entry:
+                # Convert datetime objects to strings for JSON serialization
+                if "in_datetime" in entry and hasattr(entry["in_datetime"], 'isoformat'):
+                    entry["in_datetime"] = entry["in_datetime"].isoformat()
+                if "out_datetime" in entry and hasattr(entry["out_datetime"], 'isoformat'):
+                    entry["out_datetime"] = entry["out_datetime"].isoformat()
+                # Legacy support for old date fields
+                if "in_date" in entry and hasattr(entry["in_date"], 'isoformat'):
                     entry["in_date"] = entry["in_date"].isoformat() if hasattr(entry["in_date"], 'isoformat') else entry["in_date"]
-                if "out_date" in entry:
+                if "out_date" in entry and hasattr(entry["out_date"], 'isoformat'):
                     entry["out_date"] = entry["out_date"].isoformat() if hasattr(entry["out_date"], 'isoformat') else entry["out_date"]
             return entry
         except Exception as e:
             raise Exception(f"Failed to get device by position: {str(e)}")
     
     def update(self, device_id: str, section_key: str, subsection_key: str, row: int, col: int,
-               new_device_id: str = None, in_date: str = None, out_date: str = None,
+               new_device_id: str = None, in_date: str = None, in_time: str = None,
                time_hours: int = None, updated_by: str = None) -> bool:
         """Update device entry"""
         try:
             update_fields = {}
             if new_device_id is not None:
                 update_fields["device_id"] = new_device_id
-            if in_date is not None:
-                update_fields["in_date"] = datetime.fromisoformat(in_date.replace('Z', '+00:00')) if isinstance(in_date, str) else in_date
-            if out_date is not None:
-                update_fields["out_date"] = datetime.fromisoformat(out_date.replace('Z', '+00:00')) if isinstance(out_date, str) else out_date
-            if time_hours is not None:
-                update_fields["time_hours"] = time_hours
+            
+            # If in_date or in_time or time_hours are updated, recalculate everything
+            if in_date is not None or in_time is not None or time_hours is not None:
+                # Get current entry to use existing values if not provided
+                current_entry = self.get_by_position(section_key, subsection_key, row, col)
+                if not current_entry:
+                    return False
+                
+                # Use provided values or existing ones
+                final_in_date = in_date if in_date is not None else current_entry.get('in_date')
+                final_in_time = in_time if in_time is not None else current_entry.get('in_time')
+                final_time_hours = time_hours if time_hours is not None else current_entry.get('time_hours')
+                
+                # Parse and calculate new datetime values
+                in_datetime = self._parse_datetime(final_in_date, final_in_time)
+                from datetime import timedelta
+                out_datetime = in_datetime + timedelta(hours=final_time_hours)
+                
+                update_fields.update({
+                    "in_date": in_datetime.strftime('%Y-%m-%d'),
+                    "in_time": in_datetime.strftime('%H:%M'),
+                    "in_datetime": in_datetime,
+                    "out_date": out_datetime.strftime('%Y-%m-%d'),
+                    "out_time": out_datetime.strftime('%H:%M'),
+                    "out_datetime": out_datetime,
+                    "time_hours": final_time_hours
+                })
+            
             if updated_by is not None:
                 update_fields["updated_by"] = updated_by
             
@@ -434,8 +525,12 @@ class StabilityHistoryModel:
                 "row": device_data["row"],
                 "col": device_data["col"],
                 "device_id": device_data["device_id"],
-                "in_date": device_data["in_date"],
-                "out_date": device_data["out_date"],
+                "in_date": device_data.get("in_date"),
+                "in_time": device_data.get("in_time"),
+                "in_datetime": device_data.get("in_datetime"),
+                "out_date": device_data.get("out_date"),
+                "out_time": device_data.get("out_time"),
+                "out_datetime": device_data.get("out_datetime"),
                 "time_hours": device_data["time_hours"],
                 "status": "completed",
                 "created_by": device_data.get("created_by", "unknown"),

@@ -102,16 +102,21 @@ const DevicePopup = ({
   }, [deviceData]);
 
   const calculateProgress = () => {
-    if (!editableData.inDate || !editableData.outDate) return 0;
+    if (!editableData.inDate || !editableData.inTime || !editableData.time) return 0;
     
-    const today = new Date();
-    const inDate = new Date(editableData.inDate);
-    const outDate = new Date(editableData.outDate);
-    
-    const totalDays = (outDate - inDate) / (1000 * 60 * 60 * 24);
-    const daysElapsed = (today - inDate) / (1000 * 60 * 60 * 24);
-    
-    return Math.min(Math.max((daysElapsed / totalDays) * 100, 0), 100);
+    try {
+      const now = new Date();
+      const inDateTime = new Date(`${editableData.inDate}T${editableData.inTime}`);
+      const outDateTime = new Date(inDateTime.getTime() + (editableData.time * 60 * 60 * 1000));
+      
+      const totalDuration = outDateTime - inDateTime;
+      const elapsed = now - inDateTime;
+      
+      return Math.min(Math.max((elapsed / totalDuration) * 100, 0), 100);
+    } catch (error) {
+      console.error('Error calculating progress:', error);
+      return 0;
+    }
   };
 
   const handleSave = () => {
@@ -179,11 +184,11 @@ const DevicePopup = ({
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1 text-white">Out Date:</label>
+              <label className="block text-sm font-medium mb-1 text-white">In Time:</label>
               <Input
-                type="date"
-                value={editableData.outDate || ''}
-                onChange={(e) => setEditableData({ ...editableData, outDate: e.target.value })}
+                type="time"
+                value={editableData.inTime || ''}
+                onChange={(e) => setEditableData({ ...editableData, inTime: e.target.value })}
                 className="bg-gray-800 text-white border-gray-600"
               />
             </div>
@@ -198,6 +203,24 @@ const DevicePopup = ({
                 className="bg-gray-800 text-white border-gray-600"
               />
             </div>
+
+            {/* Show calculated Out Date and Out Time */}
+            {editableData.inDate && editableData.inTime && editableData.time && (
+              <div className="bg-gray-700 p-3 rounded border border-gray-600">
+                <label className="block text-sm font-medium mb-1 text-green-400">Calculated Out Date & Time:</label>
+                <div className="text-white">
+                  {(() => {
+                    try {
+                      const inDateTime = new Date(`${editableData.inDate}T${editableData.inTime}`);
+                      const outDateTime = new Date(inDateTime.getTime() + (editableData.time * 60 * 60 * 1000));
+                      return `${outDateTime.toLocaleDateString()} at ${outDateTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`;
+                    } catch (e) {
+                      return 'Invalid date/time';
+                    }
+                  })()}
+                </div>
+              </div>
+            )}
 
             <div>
               <label className="block text-sm font-medium mb-1 text-white">Your Name:</label>
@@ -274,12 +297,12 @@ const DevicePopup = ({
                   historyItems.map((item, index) => (
                     <Card key={index} className="cursor-pointer hover:bg-gray-700 bg-gray-800 border-gray-600" onClick={() => onHistoryItemClick && onHistoryItemClick(item)}>
                       <CardContent className="p-3">
-                        <p className="font-medium text-white">{item.id}</p>
+                        <p className="font-medium text-white">{item.deviceId}</p>
                         <p className="text-sm text-gray-400">
-                          {item.inDate} to {item.outDate}
+                          {item.inDate} {item.inTime} → {item.outDate} {item.outTime}
                         </p>
                         <p className="text-xs text-gray-500">
-                          {item.time} hrs
+                          {item.timeHours} hrs | Placed by: {item.placedBy} | Removed by: {item.removedBy}
                         </p>
                       </CardContent>
                     </Card>
@@ -300,16 +323,21 @@ const HistoryDevicePopup = ({ open, onOpenChange, deviceData }) => {
   if (!deviceData) return null;
 
   const calculateProgress = () => {
-    if (!deviceData.inDate || !deviceData.outDate) return 0;
+    if (!deviceData.inDate || !deviceData.inTime || !deviceData.time) return 0;
     
-    const today = new Date();
-    const inDate = new Date(deviceData.inDate);
-    const outDate = new Date(deviceData.outDate);
-    
-    const totalDays = (outDate - inDate) / (1000 * 60 * 60 * 24);
-    const daysElapsed = (today - inDate) / (1000 * 60 * 60 * 24);
-    
-    return Math.min(Math.max((daysElapsed / totalDays) * 100, 0), 100);
+    try {
+      const now = new Date();
+      const inDateTime = new Date(`${deviceData.inDate}T${deviceData.inTime}`);
+      const outDateTime = new Date(inDateTime.getTime() + (deviceData.time * 60 * 60 * 1000));
+      
+      const totalDuration = outDateTime - inDateTime;
+      const elapsed = now - inDateTime;
+      
+      return Math.min(Math.max((elapsed / totalDuration) * 100, 0), 100);
+    } catch (error) {
+      console.error('Error calculating progress:', error);
+      return 0;
+    }
   };
 
   return (
@@ -443,7 +471,7 @@ export default function StabilityDashboard() {
         await stabilityApi.updateDevice(sectionKey, subsectionKey, row, col, {
           deviceId: deviceData.id,
           inDate: deviceData.inDate,
-          outDate: deviceData.outDate,
+          inTime: deviceData.inTime,
           timeHours: deviceData.time,
           updatedBy: personName
         });
@@ -456,7 +484,7 @@ export default function StabilityDashboard() {
           col,
           deviceId: deviceData.id,
           inDate: deviceData.inDate,
-          outDate: deviceData.outDate,
+          inTime: deviceData.inTime,
           timeHours: deviceData.time,
           createdBy: personName
         });
@@ -519,6 +547,47 @@ export default function StabilityDashboard() {
     setHistoryDevicePopupOpen(true);
   };
 
+  const handleAutoRemoveExpired = async () => {
+    try {
+      const result = await stabilityApi.autoRemoveExpiredDevices();
+      alert(`${result.message}. Refreshing dashboard...`);
+      
+      // Refresh the data after auto-removal
+      await loadData();
+    } catch (err) {
+      console.error('Failed to auto-remove expired devices:', err);
+      alert(`Failed to auto-remove expired devices: ${err.message}`);
+    }
+  };
+
+  const checkExpiredDevices = async () => {
+    try {
+      const expiredDevices = await stabilityApi.checkExpiredDevices();
+      return expiredDevices;
+    } catch (err) {
+      console.error('Failed to check expired devices:', err);
+      return [];
+    }
+  };
+
+  // Auto-check for expired devices every 5 minutes
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      try {
+        const expiredDevices = await checkExpiredDevices();
+        if (expiredDevices.length > 0) {
+          console.log(`Found ${expiredDevices.length} expired devices. Consider running auto-removal.`);
+          // Optional: Show notification or automatically remove
+          // await handleAutoRemoveExpired();
+        }
+      } catch (err) {
+        console.error('Error in periodic expired device check:', err);
+      }
+    }, 5 * 60 * 1000); // 5 minutes
+
+    return () => clearInterval(interval);
+  }, []);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -534,8 +603,18 @@ export default function StabilityDashboard() {
     <div className="min-h-screen bg-background">
       {/* Header */}
       <div className="border-b border-border p-4">
-        <h1 className="text-2xl font-bold">Stability Dashboard</h1>
-        <p className="text-muted-foreground">Real workspace testing environment monitoring</p>
+        <div className="flex justify-between items-center">
+          <div>
+            <h1 className="text-2xl font-bold">Stability Dashboard</h1>
+            <p className="text-muted-foreground">Real workspace testing environment monitoring</p>
+          </div>
+          <Button 
+            onClick={handleAutoRemoveExpired}
+            className="bg-red-600 hover:bg-red-700 text-white"
+          >
+            Auto-Remove Expired Devices
+          </Button>
+        </div>
         {error && (
           <div className="mt-2 p-2 bg-yellow-100 border border-yellow-400 text-yellow-700 rounded">
             {error}

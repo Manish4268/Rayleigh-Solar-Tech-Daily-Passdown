@@ -138,5 +138,48 @@ export const stabilityApi = {
       console.error('Error fetching history:', error);
       throw error;
     }
+  },
+
+  // Check for expired devices
+  async checkExpiredDevices() {
+    try {
+      const response = await fetch(`${API_BASE_URL}/stability/check-expired`);
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to check expired devices');
+      }
+      
+      return result.expired_devices;
+    } catch (error) {
+      console.error('Error checking expired devices:', error);
+      throw error;
+    }
+  },
+
+  // Auto-remove expired devices
+  async autoRemoveExpiredDevices() {
+    try {
+      const response = await fetch(`${API_BASE_URL}/stability/auto-remove`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+      
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to auto-remove expired devices');
+      }
+      
+      return {
+        message: result.message,
+        removedCount: result.removed_count
+      };
+    } catch (error) {
+      console.error('Error auto-removing expired devices:', error);
+      throw error;
+    }
   }
 };
