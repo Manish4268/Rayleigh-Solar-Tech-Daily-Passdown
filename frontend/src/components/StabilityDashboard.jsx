@@ -6,95 +6,21 @@ import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Edit, Save, RefreshCw, Trash2, Minimize2, History, ArrowLeft, X } from "lucide-react";
+import { stabilityApi } from "../services/stabilityApi";
 
-// Dummy data for demonstration
+// Default grid structure - will be populated from API
 const initialGridData = {
   "LS w/Temp": {
-    "25C": {
-      rows: 6,
-      cols: 4,
-      devices: {
-        "0-0": { id: "B25-53-S001-D3", inDate: "2025-10-01", outDate: "2025-12-31", time: 1000 },
-        "0-1": { id: "B25-54-S002-D1", inDate: "2025-10-02", outDate: "2025-12-30", time: 800 },
-        "1-0": { id: "B25-55-S003-D2", inDate: "2025-10-03", outDate: "2025-12-29", time: 900 },
-        "2-1": { id: "B25-56-S004-D4", inDate: "2025-10-05", outDate: "2025-12-25", time: 750 },
-        "3-2": { id: "B25-57-S005-D5", inDate: "2025-10-04", outDate: "2025-12-28", time: 850 },
-        "4-0": { id: "B25-58-S006-D6", inDate: "2025-10-06", outDate: "2025-12-26", time: 700 },
-        "5-3": { id: "B25-59-S007-D7", inDate: "2025-10-07", outDate: "2025-12-24", time: 600 },
-      }
-    },
-    "45C": {
-      rows: 6,
-      cols: 4,
-      devices: {
-        "1-1": { id: "B25-60-S008-D8", inDate: "2025-10-08", outDate: "2025-12-23", time: 950 },
-        "2-2": { id: "B25-61-S009-D9", inDate: "2025-10-09", outDate: "2025-12-22", time: 400 },
-        "3-0": { id: "B25-62-S010-D10", inDate: "2025-10-10", outDate: "2025-12-21", time: 300 },
-      }
-    },
-    "85C": {
-      rows: 6,
-      cols: 4,
-      devices: {
-        "0-2": { id: "B25-63-S011-D11", inDate: "2025-10-11", outDate: "2025-12-20", time: 500 },
-        "1-3": { id: "B25-64-S012-D12", inDate: "2025-10-12", outDate: "2025-12-19", time: 650 },
-      }
-    }
+    "25C": { rows: 6, cols: 4, devices: {} },
+    "45C": { rows: 6, cols: 4, devices: {} },
+    "85C": { rows: 6, cols: 4, devices: {} }
   },
   "Damp Heat": {
-    "": {
-      rows: 6,
-      cols: 6,
-      devices: {
-        "0-0": { id: "B25-65-S013-D13", inDate: "2025-10-13", outDate: "2025-12-18", time: 800 },
-        "1-1": { id: "B25-66-S014-D14", inDate: "2025-10-14", outDate: "2025-12-17", time: 750 },
-        "2-2": { id: "B25-67-S015-D15", inDate: "2025-10-15", outDate: "2025-12-16", time: 900 },
-        "3-3": { id: "B25-68-S016-D16", inDate: "2025-10-16", outDate: "2025-12-15", time: 550 },
-        "4-4": { id: "B25-69-S017-D17", inDate: "2025-10-17", outDate: "2025-12-14", time: 620 },
-        "5-5": { id: "B25-70-S018-D18", inDate: "2025-10-18", outDate: "2025-12-13", time: 700 },
-      }
-    }
+    "": { rows: 6, cols: 6, devices: {} }
   },
   "Outdoor Testing": {
-    "": {
-      rows: 3,
-      cols: 4,
-      devices: {
-        "0-0": { id: "B25-71-S019-D19", inDate: "2025-10-19", outDate: "2025-12-12", time: 950 },
-        "1-1": { id: "B25-72-S020-D20", inDate: "2025-10-20", outDate: "2025-12-11", time: 400 },
-        "2-2": { id: "B25-73-S021-D21", inDate: "2025-10-21", outDate: "2025-12-10", time: 300 },
-      }
-    }
+    "": { rows: 3, cols: 4, devices: {} }
   }
-};
-
-// Dummy history data
-const historyData = {
-  "LS w/Temp-25C-0-0": [
-    { id: "B25-50-S001-D1", inDate: "2025-08-01", outDate: "2025-09-30", time: 1000 },
-    { id: "B25-51-S001-D2", inDate: "2025-07-01", outDate: "2025-08-31", time: 1000 },
-    { id: "B25-48-S001-D3", inDate: "2025-06-01", outDate: "2025-07-30", time: 950 },
-    { id: "B25-45-S001-D4", inDate: "2025-05-01", outDate: "2025-06-30", time: 850 },
-  ],
-  "LS w/Temp-45C-1-1": [
-    { id: "B25-49-S002-D1", inDate: "2025-08-15", outDate: "2025-09-20", time: 800 },
-    { id: "B25-46-S002-D2", inDate: "2025-07-10", outDate: "2025-08-25", time: 750 },
-    { id: "B25-43-S002-D3", inDate: "2025-06-05", outDate: "2025-07-15", time: 700 },
-  ],
-  "LS w/Temp-85C-0-2": [
-    { id: "B25-47-S003-D1", inDate: "2025-08-20", outDate: "2025-09-25", time: 650 },
-    { id: "B25-44-S003-D2", inDate: "2025-07-15", outDate: "2025-08-30", time: 600 },
-  ],
-  "Damp Heat--0-0": [
-    { id: "B25-52-S004-D1", inDate: "2025-09-01", outDate: "2025-09-25", time: 600 },
-    { id: "B25-41-S004-D2", inDate: "2025-08-01", outDate: "2025-08-28", time: 550 },
-    { id: "B25-38-S004-D3", inDate: "2025-07-01", outDate: "2025-07-30", time: 500 },
-  ],
-  "Outdoor Testing--0-0": [
-    { id: "B25-40-S005-D1", inDate: "2025-08-05", outDate: "2025-08-15", time: 300 },
-    { id: "B25-37-S005-D2", inDate: "2025-07-20", outDate: "2025-08-05", time: 250 },
-    { id: "B25-34-S005-D3", inDate: "2025-06-25", outDate: "2025-07-25", time: 400 },
-  ]
 };
 
 const DeviceSlot = ({ sectionKey, subsectionKey, row, col, device, onDeviceClick }) => {
@@ -166,6 +92,7 @@ const DevicePopup = ({
   const [editableData, setEditableData] = useState(deviceData || {});
   const [savedData, setSavedData] = useState(deviceData || {});
   const [showHistory, setShowHistory] = useState(false);
+  const [personName, setPersonName] = useState('');
 
   useEffect(() => {
     if (deviceData) {
@@ -188,8 +115,12 @@ const DevicePopup = ({
   };
 
   const handleSave = () => {
+    if (!personName.trim()) {
+      alert('Please enter your name for tracking changes');
+      return;
+    }
     setSavedData({ ...editableData });
-    onSave(editableData);
+    onSave(editableData, personName);
   };
 
   const handleRefresh = () => {
@@ -264,6 +195,16 @@ const DevicePopup = ({
                 value={editableData.time || ''}
                 onChange={(e) => setEditableData({ ...editableData, time: parseInt(e.target.value) || 0 })}
                 placeholder="Enter time in hours"
+                className="bg-gray-800 text-white border-gray-600"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1 text-white">Your Name:</label>
+              <Input
+                value={personName}
+                onChange={(e) => setPersonName(e.target.value)}
+                placeholder="Enter your name for tracking changes"
                 className="bg-gray-800 text-white border-gray-600"
               />
             </div>
@@ -438,14 +379,40 @@ export default function StabilityDashboard() {
   const [historyDevicePopupOpen, setHistoryDevicePopupOpen] = useState(false);
   const [selectedHistoryDevice, setSelectedHistoryDevice] = useState(null);
   const [currentSlotInfo, setCurrentSlotInfo] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  const handleDeviceClick = (sectionKey, subsectionKey, row, col, device) => {
+  // Load grid data from API
+  useEffect(() => {
+    const loadGridData = async () => {
+      try {
+        setLoading(true);
+        const data = await stabilityApi.getGridData();
+        setGridData(data);
+        setError(null);
+      } catch (err) {
+        console.error('Failed to load grid data:', err);
+        setError('Failed to load grid data. Using offline mode.');
+        // Keep using initial grid data as fallback
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadGridData();
+  }, []);
+
+  const handleDeviceClick = async (sectionKey, subsectionKey, row, col, device) => {
     setCurrentSlotInfo({ sectionKey, subsectionKey, row, col });
     
     // Load history data for this slot
-    const historyKey = `${sectionKey}-${subsectionKey}-${row}-${col}`;
-    const items = historyData[historyKey] || [];
-    setHistoryItems(items);
+    try {
+      const history = await stabilityApi.getHistory(sectionKey, subsectionKey, row, col);
+      setHistoryItems(history);
+    } catch (err) {
+      console.error('Failed to load history:', err);
+      setHistoryItems([]);
+    }
     
     if (device) {
       setSelectedDevice(device);
@@ -461,38 +428,90 @@ export default function StabilityDashboard() {
     setDevicePopupOpen(true);
   };
 
-  const handleSaveDevice = (deviceData) => {
+  const handleSaveDevice = async (deviceData, personName) => {
     if (!currentSlotInfo) return;
     
     const { sectionKey, subsectionKey, row, col } = currentSlotInfo;
     const slotKey = `${row}-${col}`;
     
-    setGridData(prev => ({
-      ...prev,
-      [sectionKey]: {
-        ...prev[sectionKey],
-        [subsectionKey]: {
-          ...prev[sectionKey][subsectionKey],
-          devices: {
-            ...prev[sectionKey][subsectionKey].devices,
-            [slotKey]: deviceData
+    try {
+      // Check if device already exists in this slot
+      const existingDevice = gridData[sectionKey]?.[subsectionKey]?.devices?.[slotKey];
+      
+      if (existingDevice) {
+        // Update existing device
+        await stabilityApi.updateDevice(sectionKey, subsectionKey, row, col, {
+          deviceId: deviceData.id,
+          inDate: deviceData.inDate,
+          outDate: deviceData.outDate,
+          timeHours: deviceData.time,
+          updatedBy: personName
+        });
+      } else {
+        // Create new device
+        await stabilityApi.createDevice({
+          sectionKey,
+          subsectionKey,
+          row,
+          col,
+          deviceId: deviceData.id,
+          inDate: deviceData.inDate,
+          outDate: deviceData.outDate,
+          timeHours: deviceData.time,
+          createdBy: personName
+        });
+      }
+      
+      // Update local state
+      setGridData(prev => ({
+        ...prev,
+        [sectionKey]: {
+          ...prev[sectionKey],
+          [subsectionKey]: {
+            ...prev[sectionKey][subsectionKey],
+            devices: {
+              ...prev[sectionKey][subsectionKey].devices,
+              [slotKey]: deviceData
+            }
           }
         }
-      }
-    }));
+      }));
+      
+      alert('Device saved successfully!');
+    } catch (err) {
+      console.error('Failed to save device:', err);
+      alert(`Failed to save device: ${err.message}`);
+    }
   };
 
-  const handleRemoveDevice = () => {
+  const handleRemoveDevice = async () => {
     if (!currentSlotInfo) return;
+    
+    // Get person name for removal tracking
+    const personName = prompt('Enter your name for tracking this removal:');
+    if (!personName || !personName.trim()) {
+      alert('Name is required for tracking changes');
+      return;
+    }
     
     const { sectionKey, subsectionKey, row, col } = currentSlotInfo;
     const slotKey = `${row}-${col}`;
     
-    setGridData(prev => {
-      const newData = { ...prev };
-      delete newData[sectionKey][subsectionKey].devices[slotKey];
-      return newData;
-    });
+    try {
+      await stabilityApi.removeDevice(sectionKey, subsectionKey, row, col, personName.trim());
+      
+      // Update local state
+      setGridData(prev => {
+        const newData = { ...prev };
+        delete newData[sectionKey][subsectionKey].devices[slotKey];
+        return newData;
+      });
+      
+      alert('Device removed successfully!');
+    } catch (err) {
+      console.error('Failed to remove device:', err);
+      alert(`Failed to remove device: ${err.message}`);
+    }
   };
 
   const handleHistoryItemClick = (device) => {
@@ -500,12 +519,28 @@ export default function StabilityDashboard() {
     setHistoryDevicePopupOpen(true);
   };
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-primary"></div>
+          <p className="mt-4 text-lg">Loading Stability Dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
       <div className="border-b border-border p-4">
         <h1 className="text-2xl font-bold">Stability Dashboard</h1>
         <p className="text-muted-foreground">Real workspace testing environment monitoring</p>
+        {error && (
+          <div className="mt-2 p-2 bg-yellow-100 border border-yellow-400 text-yellow-700 rounded">
+            {error}
+          </div>
+        )}
       </div>
 
       {/* Main Content */}

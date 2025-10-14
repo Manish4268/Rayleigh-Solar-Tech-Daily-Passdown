@@ -48,6 +48,14 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
+# Import database models for stability dashboard
+try:
+    from database import DatabaseManager as StabilityDatabaseManager, StabilityDeviceModel, StabilityHistoryModel
+    STABILITY_MODELS_AVAILABLE = True
+except ImportError:
+    STABILITY_MODELS_AVAILABLE = False
+    print("⚠️  Stability models not available - some endpoints may not work")
+
 # Configuration
 MONGODB_CONNECTION_STRING = os.getenv('MONGODB_CONNECTION_STRING')
 DATABASE_NAME = os.getenv('DATABASE_NAME', 'passdown_db')
@@ -57,7 +65,10 @@ COLLECTIONS = {
     'safety_issues': 'safety_issues',
     'kudos': 'kudos_entries', 
     'today_issues': 'today_top_issues',
-    'yesterday_issues': 'yesterday_top_issues'
+    'yesterday_issues': 'yesterday_top_issues',
+    # Stability Dashboard Collections
+    'stability_devices': os.getenv('COLLECTION_STABILITY_DEVICES', 'stability_devices'),
+    'stability_history': os.getenv('COLLECTION_STABILITY_HISTORY', 'stability_history')
 }
 
 class DatabaseManager:
@@ -759,6 +770,254 @@ def create_flask_app():
         elif request.method == 'DELETE':
             return api.delete_yesterday_issue(request, issue_id)
     
+    # Stability Dashboard Endpoints
+    @app.route('/api/stability/grid-data', methods=['GET'])
+    def get_stability_grid_data():
+        """Get all stability grid data including devices and history."""
+        try:
+            if not STABILITY_MODELS_AVAILABLE:
+                return jsonify({'success': False, 'error': 'Stability models not available'}), 500
+            
+            # Use the working database connection from homepage
+            api = PassdownAPI()
+            db_manager = api._get_db_connection()
+            if not db_manager:
+                return jsonify({'success': False, 'error': 'Database connection failed'}), 500
+            
+            # Create a stability database manager using the working connection
+            stability_db = StabilityDatabaseManager()
+            stability_db.client = db_manager.client
+            stability_db.db = db_manager.db
+            
+            device_model = StabilityDeviceModel(stability_db)
+            devices = device_model.get_all()
+            
+            # Organize devices by grid structure
+            grid_data = {
+                "LS w/Temp": {
+                    "25C": {"rows": 6, "cols": 4, "devices": {}},
+                    "45C": {"rows": 6, "cols": 4, "devices": {}},
+                    "85C": {"rows": 6, "cols": 4, "devices": {}}
+                },
+                "Damp Heat": {
+                    "": {"rows": 6, "cols": 6, "devices": {}}
+                },
+                "Outdoor Testing": {
+                    "": {"rows": 3, "cols": 4, "devices": {}}
+                }
+            }
+            
+            # Populate grid with active devices
+            for device in devices:
+                section_key = device["section_key"]
+                subsection_key = device["subsection_key"]
+                row = device["row"]
+                col = device["col"]
+                slot_key = f"{row}-{col}"
+                
+                if section_key in grid_data and subsection_key in grid_data[section_key]:
+                    grid_data[section_key][subsection_key]["devices"][slot_key] = {
+                        "id": device["device_id"],
+                        "inDate": device["in_date"][:10] if isinstance(device["in_date"], str) else device["in_date"].strftime("%Y-%m-%d"),
+                        "outDate": device["out_date"][:10] if isinstance(device["out_date"], str) else device["out_date"].strftime("%Y-%m-%d"),
+                        "time": device["time_hours"]
+                    }
+            
+            # Close connections if needed
+            if hasattr(db_manager, 'close_connection'):
+                db_manager.close_connection()
+            elif hasattr(db_manager, 'close'):
+                db_manager.close()
+                
+            return jsonify({
+                'success': True,
+                'gridData': grid_data
+            })
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)}), 500
+
+    @app.route('/api/stability/devices', methods=['GET', 'POST'])
+    def stability_devices():
+        """Handle stability device CRUD operations."""
+        try:
+            if not STABILITY_MODELS_AVAILABLE:
+                return jsonify({'success': False, 'error': 'Stability models not available'}), 500
+            
+            # Use the working database connection from homepage
+            api = PassdownAPI()
+            db_manager = api._get_db_connection()
+            if not db_manager:
+                return jsonify({'success': False, 'error': 'Database connection failed'}), 500
+                
+            # Create a stability database manager using the working connection
+            stability_db = StabilityDatabaseManager()
+            stability_db.client = db_manager.client
+            stability_db.db = db_manager.db
+            
+            device_model = StabilityDeviceModel(stability_db)
+            history_model = StabilityHistoryModel(stability_db)
+            
+            if request.method == 'GET':
+                devices = device_model.get_all()
+                # Close connections if needed
+                if hasattr(db_manager, 'close_connection'):
+                    db_manager.close_connection()
+                elif hasattr(db_manager, 'close'):
+                    db_manager.close()
+                return jsonify({
+                    'success': True,
+                    'devices': devices
+                })
+            
+            elif request.method == 'POST':
+                data = request.get_json()
+                required_fields = ['sectionKey', 'subsectionKey', 'row', 'col', 'deviceId', 'inDate', 'outDate', 'timeHours', 'createdBy']
+                
+                if not all(field in data for field in required_fields):
+                    return jsonify({'success': False, 'error': 'Missing required fields'}), 400
+                
+                device = device_model.create(
+                    section_key=data['sectionKey'],
+                    subsection_key=data['subsectionKey'],
+                    row=data['row'],
+                    col=data['col'],
+                    device_id=data['deviceId'],
+                    in_date=data['inDate'],
+                    out_date=data['outDate'],
+                    time_hours=data['timeHours'],
+                    created_by=data['createdBy']
+                )
+                
+                # Close connections if needed
+                if hasattr(db_manager, 'close_connection'):
+                    db_manager.close_connection()
+                elif hasattr(db_manager, 'close'):
+                    db_manager.close()
+                return jsonify({
+                    'success': True,
+                    'device': device
+                }), 201
+                
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)}), 500
+
+    @app.route('/api/stability/devices/<section_key>/<subsection_key>/<int:row>/<int:col>', methods=['PUT', 'DELETE'])
+    def stability_device_by_position(section_key, subsection_key, row, col):
+        """Update or delete stability device by position."""
+        try:
+            if not STABILITY_MODELS_AVAILABLE:
+                return jsonify({'success': False, 'error': 'Stability models not available'}), 500
+            
+            # Handle empty subsection_key placeholder
+            if subsection_key == '_empty_':
+                subsection_key = ''
+            
+            # Use the working database connection from homepage
+            api = PassdownAPI()
+            db_manager = api._get_db_connection()
+            if not db_manager:
+                return jsonify({'success': False, 'error': 'Database connection failed'}), 500
+                
+            # Create a stability database manager using the working connection
+            stability_db = StabilityDatabaseManager()
+            stability_db.client = db_manager.client
+            stability_db.db = db_manager.db
+            
+            device_model = StabilityDeviceModel(stability_db)
+            history_model = StabilityHistoryModel(stability_db)
+            
+            if request.method == 'PUT':
+                data = request.get_json()
+                
+                success = device_model.update(
+                    device_id=data.get('deviceId', ''),
+                    section_key=section_key,
+                    subsection_key=subsection_key,
+                    row=row,
+                    col=col,
+                    new_device_id=data.get('deviceId'),
+                    in_date=data.get('inDate'),
+                    out_date=data.get('outDate'),
+                    time_hours=data.get('timeHours'),
+                    updated_by=data.get('updatedBy', 'unknown')
+                )
+                
+                # Close connections if needed
+                if hasattr(db_manager, 'close_connection'):
+                    db_manager.close_connection()
+                elif hasattr(db_manager, 'close'):
+                    db_manager.close()
+                return jsonify({
+                    'success': success,
+                    'message': 'Device updated successfully' if success else 'Device not found or no changes made'
+                })
+            
+            elif request.method == 'DELETE':
+                data = request.get_json()
+                removed_by = data.get('removedBy', 'unknown')
+                
+                success = device_model.soft_delete(
+                    section_key=section_key,
+                    subsection_key=subsection_key,
+                    row=row,
+                    col=col,
+                    removed_by=removed_by
+                )
+                
+                # Close connections if needed
+                if hasattr(db_manager, 'close_connection'):
+                    db_manager.close_connection()
+                elif hasattr(db_manager, 'close'):
+                    db_manager.close()
+                return jsonify({
+                    'success': success,
+                    'message': 'Device removed successfully' if success else 'Device not found'
+                })
+                
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)}), 500
+
+    @app.route('/api/stability/history/<section_key>/<subsection_key>/<int:row>/<int:col>', methods=['GET'])
+    def get_stability_history(section_key, subsection_key, row, col):
+        """Get history for specific stability slot."""
+        try:
+            if not STABILITY_MODELS_AVAILABLE:
+                return jsonify({'success': False, 'error': 'Stability models not available'}), 500
+            
+            # Handle empty subsection_key placeholder
+            if subsection_key == '_empty_':
+                subsection_key = ''
+                
+            db_manager = StabilityDatabaseManager()
+            if not db_manager.connect():
+                return jsonify({'success': False, 'error': 'Database connection failed'}), 500
+            
+            history_model = StabilityHistoryModel(db_manager)
+            history = history_model.get_by_position(section_key, subsection_key, row, col)
+            
+            # Format history for frontend
+            formatted_history = []
+            for item in history:
+                formatted_history.append({
+                    "id": item["device_id"],
+                    "inDate": item["in_date"][:10] if isinstance(item["in_date"], str) else item["in_date"].strftime("%Y-%m-%d"),
+                    "outDate": item["out_date"][:10] if isinstance(item["out_date"], str) else item["out_date"].strftime("%Y-%m-%d"),
+                    "time": item["time_hours"]
+                })
+            
+            # Close connections if needed
+            if hasattr(db_manager, 'close_connection'):
+                db_manager.close_connection()
+            elif hasattr(db_manager, 'close'):
+                db_manager.close()
+            return jsonify({
+                'success': True,
+                'history': formatted_history
+            })
+            
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)}), 500
+
     # Chart Data Endpoints
     @app.route('/api/charts/parameters', methods=['GET'])
     def get_chart_parameters():
