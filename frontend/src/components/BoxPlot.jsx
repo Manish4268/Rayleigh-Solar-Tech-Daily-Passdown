@@ -1,10 +1,30 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 
 const BoxPlot = ({ data, width = 100, height = 200, color = '#3b82f6', unit = '' }) => {
   const [hoveredData, setHoveredData] = useState(null);
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
+  const [actualWidth, setActualWidth] = useState(400);
+  const containerRef = useRef(null);
+
+  // Handle responsive width
+  useEffect(() => {
+    if (width === "100%" && containerRef.current) {
+      const updateWidth = () => {
+        setActualWidth(containerRef.current.offsetWidth);
+      };
+      
+      updateWidth();
+      window.addEventListener('resize', updateWidth);
+      return () => window.removeEventListener('resize', updateWidth);
+    } else if (typeof width === 'number') {
+      setActualWidth(width);
+    }
+  }, [width]);
 
   if (!data || data.length === 0) return null;
+
+  // Use actualWidth for calculations
+  const svgWidth = actualWidth;
 
   // Calculate scale based on data range
   const allValues = data.flatMap(d => [d.min, d.max]);
@@ -21,12 +41,12 @@ const BoxPlot = ({ data, width = 100, height = 200, color = '#3b82f6', unit = ''
     return height - ((value - scaleMin) / scaleRange) * height;
   };
 
-  const boxWidth = Math.min(60, width / data.length * 0.6);
-  const spacing = width / data.length;
+  const boxWidth = Math.min(60, svgWidth / data.length * 0.6);
+  const spacing = svgWidth / data.length;
 
   return (
-    <div className="relative w-full h-full">
-      <svg width={width} height={height} className="overflow-visible">
+    <div ref={containerRef} className="relative w-full h-full">
+      <svg width={svgWidth} height={height} className="overflow-visible">
         {/* Background grid lines */}
         {[0, 0.25, 0.5, 0.75, 1].map((ratio, i) => {
           const y = height * ratio;
@@ -36,7 +56,7 @@ const BoxPlot = ({ data, width = 100, height = 200, color = '#3b82f6', unit = ''
               <line
                 x1={0}
                 y1={y}
-                x2={width}
+                x2={svgWidth}
                 y2={y}
                 stroke="#374151"
                 strokeWidth={0.5}

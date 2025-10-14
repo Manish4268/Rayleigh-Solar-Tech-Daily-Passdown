@@ -106,9 +106,11 @@ const ParameterChart = () => {
   };
 
   return (
-    <Card>
+    <Card className="w-full">
       <CardHeader>
-        <CardTitle className="text-balance">Solar Cell Parameters</CardTitle>
+        <CardTitle className="text-xl font-semibold text-balance">
+          {selectedParameter ? `${parameterInfo[selectedParameter]?.label || selectedParameter} Analysis` : 'Parameter Analysis'}
+        </CardTitle>
         
         {/* Parameter Selection Buttons with Horizontal Scroll */}
         <div className="w-full overflow-x-auto scrollbar-thin scrollbar-track-gray-800 scrollbar-thumb-gray-600 hover:scrollbar-thumb-gray-500">
@@ -144,11 +146,11 @@ const ParameterChart = () => {
             <div className="text-gray-500">Loading chart data...</div>
           </div>
         ) : (
-          <div className="relative w-full h-48">
+          <div className="relative w-full h-80">
             <BoxPlot 
               data={chartData}
-              width={400}
-              height={180}
+              width="100%"
+              height={320}
               color={currentParam.color}
               unit={currentParam.unit}
             />

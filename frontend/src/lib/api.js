@@ -146,6 +146,19 @@ export const healthAPI = {
   },
 };
 
+// Reset Today's Issues
+export const resetAPI = {
+  resetTodayIssues: async () => {
+    const response = await fetch(`${API_BASE_URL}/reset-today`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+    return handleResponse(response);
+  },
+};
+
 // Chart data API functions
 export const chartAPI = {
   // Get available parameters
@@ -159,22 +172,10 @@ export const chartAPI = {
     const response = await fetch(`${API_BASE_URL}/charts/data/${parameter}`);
     return handleResponse(response);
   },
-};
 
-// Process Information API functions
-export const processAPI = {
-  // Get process information from parquet data
-  getAll: async () => {
-    const response = await fetch(`${API_BASE_URL}/process-information`);
-    return handleResponse(response);
-  },
-};
-
-// Equipment API functions
-export const equipmentAPI = {
-  // Get equipment list from parquet data
-  getAll: async () => {
-    const response = await fetch(`${API_BASE_URL}/equipment`);
+  // Get device yield data with 2.5% quantiles and batch averages
+  getDeviceYield: async () => {
+    const response = await fetch(`${API_BASE_URL}/charts/device-yield`);
     return handleResponse(response);
   },
 };

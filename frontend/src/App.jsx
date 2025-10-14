@@ -8,8 +8,9 @@ import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
 import { Plus, Menu, Trash2, Edit } from "lucide-react"
-import { todayAPI, yesterdayAPI, safetyAPI, kudosAPI, healthAPI } from "@/lib/api"
+import { todayAPI, yesterdayAPI, safetyAPI, kudosAPI, healthAPI, resetAPI } from "@/lib/api"
 import ParameterChart from "@/components/ParameterChart"
+import DeviceYieldChart from "@/components/DeviceYieldChart"
 
 // Sample data
 const processData = [
@@ -317,6 +318,20 @@ export default function ProductionDashboard() {
       await loadTodayIssues() // Reload only today issues
     } catch (err) {
       setError('Failed to delete issue: ' + err.message)
+    }
+  }
+
+  const handleResetTodayIssues = async () => {
+    if (window.confirm('Are you sure you want to reset Today\'s Issues? This will clear all standup items for a fresh start.')) {
+      try {
+        const result = await resetAPI.resetTodayIssues()
+        await loadTodayIssues() // Reload today issues
+        setError(null)
+        // Show success message briefly
+        alert(`✅ ${result.message || 'Today\'s Issues reset successfully!'}`)
+      } catch (err) {
+        setError('Failed to reset today\'s issues: ' + err.message)
+      }
     }
   }
 
@@ -708,7 +723,17 @@ export default function ProductionDashboard() {
 
               {/* Today's Issues */}
               <div>
-                <h3 className="font-medium mb-3 text-muted-foreground">Today's Top Issues (Standup Items)</h3>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-medium text-muted-foreground">Today's Top Issues (Standup Items)</h3>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={handleResetTodayIssues}
+                    className="text-xs bg-red-50 hover:bg-red-100 text-red-700 border-red-200"
+                  >
+                    🔄 Reset Today
+                  </Button>
+                </div>
                 <div className="text-xs text-muted-foreground mb-2">
                   Add today's issues for standup. They will automatically appear in "Top Issues" section for tracking.
                 </div>
@@ -788,50 +813,23 @@ export default function ProductionDashboard() {
           </CardContent>
         </Card>
 
-        {/* Charts */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Parameter Chart - replaces PCE vs Batch */}
-          <ParameterChart />
+        {/* Charts - Separate Analysis Sections */}
+        <div className="space-y-8">
+          {/* 1. Parameter Analysis (FF, PCE, etc.) */}
+          <div className="w-full">
+            <ParameterChart />
+          </div>
 
-          {/* Device Yield */}
+          {/* 2. Device Yield Analysis */}
+          <DeviceYieldChart />
+
+          {/* 3. IV Repeatability Analysis */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-balance">Device Yield</CardTitle>
+              <CardTitle className="text-xl font-semibold text-balance">IV Repeatability Analysis</CardTitle>
             </CardHeader>
             <CardContent>
-              <ResponsiveContainer width="100%" height={200}>
-                <LineChart data={yieldData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#10b981" opacity={0.2} />
-                  <XAxis dataKey="time" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
-                  <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "#1e293b",
-                      border: "1px solid #10b981",
-                      borderRadius: "8px",
-                      color: "#f1f5f9",
-                    }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="yield"
-                    stroke="#10b981"
-                    strokeWidth={4}
-                    dot={{ fill: "#10b981", strokeWidth: 2, r: 6 }}
-                    activeDot={{ r: 8, fill: "#059669", stroke: "#10b981", strokeWidth: 2 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-
-          {/* IV Repeatability */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-balance">IV Repeatability</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={200}>
+              <ResponsiveContainer width="100%" height={300}>
                 <LineChart data={repeatabilityData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f59e0b" opacity={0.2} />
                   <XAxis dataKey="time" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
@@ -861,4 +859,3 @@ export default function ProductionDashboard() {
     </div>
   )
 }
-

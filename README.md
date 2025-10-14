@@ -1,140 +1,276 @@
-# Rayleigh Solar Tech Daily Passdown System - Enhanced Version
+# Rayleigh Solar Tech Daily Passdown System - Clean Version# Rayleigh Solar Tech Daily Passdown System - Enhanced Version
 
-A full-stack production dashboard application for managing daily issues and updates in a solar technology manufacturing environment.
 
-## ✨ New Features & Enhancements
 
-### 🔄 Workflow Automation
-- **Today → Yesterday Flow**: Items added to "Today" automatically appear in "Top Issues" as incomplete tasks
-- **Smart Status Management**: Users can mark items as complete directly in the Top Issues section
-- **Intelligent Filtering**: "Show only incomplete" checkbox to focus on active tasks
+A clean, minimal version of the daily passdown system with only essential functionality.A full-stack production dashboard application for managing daily issues and updates in a solar technology manufacturing environment.
 
-### � Enhanced Kudos System
+
+
+## ✨ Features## ✨ New Features & Enhancements
+
+
+
+- **Save Functionality**: Safety issues, Kudos, Today's issues, Yesterday's issues### 🔄 Workflow Automation
+
+- **Chart Data API**: Parameter visualization with mock data- **Today → Yesterday Flow**: Items added to "Today" automatically appear in "Top Issues" as incomplete tasks
+
+- **Clean Architecture**: Minimal dependencies, focused functionality- **Smart Status Management**: Users can mark items as complete directly in the Top Issues section
+
+- **Comprehensive Testing**: Two focused test cases- **Intelligent Filtering**: "Show only incomplete" checkbox to focus on active tasks
+
+
+
+## 🏗️ Project Structure### � Enhanced Kudos System
+
 - **Attribution Tracking**: New "By Whom" field to track who gave the kudos
-- **Complete Information**: Name, Action, and Attribution all captured
-- **Enhanced UI**: Improved form with three input fields for comprehensive kudos tracking
 
-### 📊 Improved User Interface
-- **Scrollable Tables**: All tables now scroll with max-height of 320px for better data management
-- **Sticky Headers**: Table headers remain visible while scrolling through data
-- **Enhanced Styling**: Improved borders, rounded corners, and responsive design
-- **Individual Refresh**: Tables refresh individually instead of full page reload for better UX
+```- **Complete Information**: Name, Action, and Attribution all captured
 
-### 🔧 Backend Improvements
-- **Robust Validation**: Enhanced data validation across all endpoints
-- **Workflow Integration**: Automatic cross-collection updates for Today→Yesterday flow
-- **Improved Error Handling**: Consistent error responses and database connection management
-- **Performance Optimization**: Individual database connections for reliability
+├── backend/- **Enhanced UI**: Improved form with three input fields for comprehensive kudos tracking
 
-### 🧪 Testing & Quality
-- **Comprehensive Test Suite**: Complete API endpoint testing with automated validation
-- **Edge Case Testing**: Unicode, special characters, and data validation testing
-- **Performance Testing**: Multi-request performance validation
-- **Workflow Testing**: Automated testing of the Today→Yesterday workflow
+│   ├── passdown_app_clean.py      # Clean main application
+
+│   ├── test_save_functionality.py # Test Case 1: Save operations### 📊 Improved User Interface
+
+│   ├── test_chart_functionality.py# Test Case 2: Chart functionality- **Scrollable Tables**: All tables now scroll with max-height of 320px for better data management
+
+│   ├── requirements.txt           # Minimal dependencies- **Sticky Headers**: Table headers remain visible while scrolling through data
+
+│   ├── .env                       # Database configuration- **Enhanced Styling**: Improved borders, rounded corners, and responsive design
+
+│   └── .env.example              # Environment template- **Individual Refresh**: Tables refresh individually instead of full page reload for better UX
+
+│
+
+├── frontend/### 🔧 Backend Improvements
+
+│   ├── src/- **Robust Validation**: Enhanced data validation across all endpoints
+
+│   │   ├── App.jsx               # Main dashboard- **Workflow Integration**: Automatic cross-collection updates for Today→Yesterday flow
+
+│   │   ├── components/           # UI components- **Improved Error Handling**: Consistent error responses and database connection management
+
+│   │   └── lib/api.js           # API integration- **Performance Optimization**: Individual database connections for reliability
+
+│   ├── package.json
+
+│   └── vite.config.js### 🧪 Testing & Quality
+
+│- **Comprehensive Test Suite**: Complete API endpoint testing with automated validation
+
+├── start.bat                     # Windows startup script- **Edge Case Testing**: Unicode, special characters, and data validation testing
+
+├── start.sh                      # Unix startup script- **Performance Testing**: Multi-request performance validation
+
+└── README.md                     # This file- **Workflow Testing**: Automated testing of the Today→Yesterday workflow
+
+```
 
 ## �🏗️ Architecture
 
+## 🚀 Quick Start
+
 ### Backend
-- **Python Flask** local development server
-- **Azure Functions** for cloud deployment
-- **MongoDB Atlas** for data storage
+
+### 1. Backend Setup- **Python Flask** local development server
+
+```powershell- **Azure Functions** for cloud deployment
+
+cd backend- **MongoDB Atlas** for data storage
+
 - **CORS** enabled for frontend integration
-- **Individual DB connections** for improved reliability
+
+# Install dependencies- **Individual DB connections** for improved reliability
+
+pip install -r requirements.txt
 
 ### Frontend
-- **React 19** with Vite
-- **Tailwind CSS** for styling
+
+# Configure environment (copy .env.example to .env and update)- **React 19** with Vite
+
+cp .env.example .env- **Tailwind CSS** for styling
+
 - **Radix UI** components
-- **Recharts** for data visualization
-- **Individual table refresh** for better performance
+
+# Start clean server- **Recharts** for data visualization
+
+python passdown_app_clean.py- **Individual table refresh** for better performance
+
+```
 
 ## 📁 Project Structure
 
-```
-├── backend/
-│   ├── passdown_app.py          # Main consolidated backend (Flask + Azure Functions)
-│   ├── create_demo_data_new.py  # Demo data generator
-│   ├── test_connection.py       # Database connection test
+### 2. Frontend Setup
+
+```powershell```
+
+cd frontend├── backend/
+
+npm install  # (if needed)│   ├── passdown_app.py          # Main consolidated backend (Flask + Azure Functions)
+
+npm run dev│   ├── create_demo_data_new.py  # Demo data generator
+
+```│   ├── test_connection.py       # Database connection test
+
 │   ├── test_all_endpoints.py    # Comprehensive test suite
-│   ├── requirements.txt         # Python dependencies
-│   ├── .env.example            # Environment variables template
-│   ├── function.json           # Azure Functions configuration
-│   └── host.json               # Azure Functions host config
+
+### 3. Access Application│   ├── requirements.txt         # Python dependencies
+
+- **Frontend**: http://localhost:5173│   ├── .env.example            # Environment variables template
+
+- **Backend**: http://localhost:7071│   ├── function.json           # Azure Functions configuration
+
+- **Health Check**: http://localhost:7071/api/health│   └── host.json               # Azure Functions host config
+
 │
-├── frontend/
+
+## 🧪 Testing├── frontend/
+
 │   ├── src/
-│   │   ├── App.jsx             # Main dashboard component
-│   │   ├── lib/
-│   │   │   ├── api.js          # API integration utilities
-│   │   │   └── utils.js        # UI utilities
-│   │   └── components/ui/      # Reusable UI components
-│   ├── package.json            # Node.js dependencies
+
+### Test Case 1: Save Functionality│   │   ├── App.jsx             # Main dashboard component
+
+Tests all save operations (Safety, Kudos, Today, Yesterday issues)│   │   ├── lib/
+
+```powershell│   │   │   ├── api.js          # API integration utilities
+
+cd backend│   │   │   └── utils.js        # UI utilities
+
+python test_save_functionality.py│   │   └── components/ui/      # Reusable UI components
+
+```│   ├── package.json            # Node.js dependencies
+
 │   ├── .env.example           # Environment variables template
-│   └── vite.config.js         # Vite configuration
-│
-├── start.bat                   # Windows startup script
-├── start.sh                    # Linux/macOS startup script
-└── README.md                   # This file
-```
 
-## 🚀 Quick Start
+### Test Case 2: Chart Functionality  │   └── vite.config.js         # Vite configuration
 
-### 🏃‍♂️ Express Setup (Recommended)
+Tests chart data loading and parameter functionality│
 
-Use the startup scripts for the fastest setup:
+```powershell├── start.bat                   # Windows startup script
 
-**Windows:**
-```cmd
+cd backend├── start.sh                    # Linux/macOS startup script
+
+python test_chart_functionality.py└── README.md                   # This file
+
+``````
+
+
+
+## 📊 API Endpoints## 🚀 Quick Start
+
+
+
+### Core Endpoints### 🏃‍♂️ Express Setup (Recommended)
+
+- `GET/POST /api/safety` - Safety issues
+
+- `GET/POST /api/kudos` - Kudos entriesUse the startup scripts for the fastest setup:
+
+- `GET/POST /api/today` - Today's issues
+
+- `GET/POST /api/yesterday` - Yesterday's issues**Windows:**
+
+- `PUT /api/yesterday/:id` - Update yesterday issue```cmd
+
 start.bat
+
+### Chart Endpoints```
+
+- `GET /api/charts/parameters` - Available parameters
+
+- `GET /api/charts/data/:parameter` - Chart data for parameter**Linux/macOS:**
+
+```bash
+
+### Systemchmod +x start.sh
+
+- `GET /api/health` - Health check./start.sh
+
 ```
 
-**Linux/macOS:**
-```bash
-chmod +x start.sh
-./start.sh
-```
+## 🔧 Configuration
 
 These scripts will automatically:
-- ✅ Check prerequisites (Python, Node.js)
-- 🐍 Start the backend server on port 7071
-- ⚛️ Start the frontend dev server on port 5173
-- 🌐 Open the application in your browser
+
+### Environment Variables (.env)- ✅ Check prerequisites (Python, Node.js)
+
+```- 🐍 Start the backend server on port 7071
+
+MONGODB_CONNECTION_STRING=mongodb+srv://username:password@cluster.mongodb.net/- ⚛️ Start the frontend dev server on port 5173
+
+DATABASE_NAME=passdown_db- 🌐 Open the application in your browser
+
+```
 
 ### 📋 Manual Setup
 
+## 🎯 Key Improvements
+
 ### Prerequisites
-- **Node.js 18+** for frontend
-- **Python 3.8+** for backend
-- **MongoDB Atlas** account and cluster
 
-### 1. Backend Setup
+✅ **Simplified Architecture** - Removed unnecessary complexity  - **Node.js 18+** for frontend
 
-```powershell
+✅ **Focused Testing** - Two comprehensive test cases  - **Python 3.8+** for backend
+
+✅ **Clean Dependencies** - Only essential packages  - **MongoDB Atlas** account and cluster
+
+✅ **Better Error Handling** - Robust error management  
+
+✅ **Clear Documentation** - Simple setup instructions  ### 1. Backend Setup
+
+
+
+## 🔍 What Was Cleaned Up```powershell
+
 # Navigate to backend directory
-cd backend
 
-# Install Python dependencies
-pip install -r requirements.txt
+**Removed Files:**cd backend
 
-# Copy environment template and configure
-copy .env.example .env
-# Edit .env with your MongoDB connection string
+- analyze_data.py
+
+- database.py (merged into main app)# Install Python dependencies
+
+- data_processor.pypip install -r requirements.txt
+
+- local_server.py
+
+- test_all_save_functionality.py# Copy environment template and configure
+
+- Multiple redundant test filescopy .env.example .env
+
+- __pycache__ directories# Edit .env with your MongoDB connection string
+
+- Data directories
 
 # Test database connection
-python test_connection.py
 
-# Create demo data (optional)
-python create_demo_data_new.py
+**Consolidated Features:**python test_connection.py
+
+- Single main application file
+
+- Minimal dependencies# Create demo data (optional)
+
+- Two focused test casespython create_demo_data_new.py
+
+- Clean project structure
 
 # Run comprehensive tests
-python test_all_endpoints.py
 
-# Start local development server
-python passdown_app.py
-```
+## 💡 Usagepython test_all_endpoints.py
+
+
+
+1. **Start the application** using start scripts or manually# Start local development server
+
+2. **Run Test Case 1** to verify all save operations workpython passdown_app.py
+
+3. **Run Test Case 2** to verify chart functionality works```
+
+4. **Use the frontend** to interact with the system
 
 The backend will be available at `http://localhost:7071`
 
+The system is now clean, minimal, and focused on core functionality with comprehensive testing.
 ### 2. Frontend Setup
 
 ```powershell

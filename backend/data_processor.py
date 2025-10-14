@@ -38,83 +38,104 @@ def calculate_box_plot_stats(values):
         'max': round(max(sorted_values), 2),
         'mean': round(mean(sorted_values), 2),
         'std': round(stdev(sorted_values) if len(sorted_values) > 1 else 0, 2),
-        'count': len(sorted_values)
+        'count': len(sorted_values) / 4
     }
 
+
 def extract_chart_data():
-    """Extract chart data for all parameters from Excel files in the Data folder."""
-    base_path = os.path.dirname(os.path.dirname(__file__))
-    data_folder_path = os.path.join(base_path, 'Data')
-    
-    # Parameter mapping - frontend name to Excel column name
+    """Extract chart data from the actual Baseline.xlsx file"""
+    xlsx_path = r"C:\Users\ManishJadhav\ReactProject\Rayleigh-Solar-Tech-Daily-Passdown\Data\BaseLine.xlsx"
+
     parameter_mapping = {
-        'PCE': 'PCE (%)_AVG',
-        'FF': 'FF (%)_AVG', 
-        'Max Power': 'Max Power (mW/cm2)_AVG',
+        'PCE': 'PCE (%)',
+        'FF': 'FF (%)',
+        'Max Power': 'Max Power (mW/cm2)',
         'HI': 'HI (%)',
-        'I_sc': 'J_sc (mA/cm2)_AVG',  # Using J_sc instead of I_sc as it's more standard
-        'V_oc': 'V_oc (V)_AVG',
-        'R_series': 'R_series (Ohm.cm2)_AVG',
-        'R_shunt': 'R_shunt (Ohm.cm2)_AVG'
+        'I_sc': 'J_sc (mA/cm2)',
+        'V_oc': 'V_oc (V)',
+        'R_series': 'R_series (Ohm.cm2)',
+        'R_shunt': 'R_shunt (Ohm.cm2)'
     }
-    
-    chart_data = {}
-    
-    for param_name, excel_column in parameter_mapping.items():
-        chart_data[param_name] = []
+
+    # Default empty stats row
+    empty_stats = {'min': 0, 'q1': 0, 'median': 0, 'q3': 0, 'max': 0, 'mean': 0, 'std': 0, 'count': 0}
+
+    chart_data = {k: [] for k in parameter_mapping}
+
+    if not os.path.exists(xlsx_path):
+        print(f"⚠️ Excel file not found at: {xlsx_path}")
+        for k in chart_data:
+            entry = dict(empty_stats)
+            entry['batch'] = 'No Data'
+            chart_data[k].append(entry)
+        return chart_data
+
+    try:
+        print(f"📊 Reading Excel file: {xlsx_path}")
+        df = pd.read_excel(xlsx_path)
+        print(f"✅ Excel file loaded successfully. Shape: {df.shape}")
+        print(f"📋 Available columns: {list(df.columns)}")
         
-        # Get all batch folders from the Data directory
-        batch_folders = []
-        if os.path.exists(data_folder_path):
-            for item in os.listdir(data_folder_path):
-                item_path = os.path.join(data_folder_path, item)
-                if os.path.isdir(item_path) and item.isdigit():
-                    batch_folders.append(item)
+        # If there's a batch column, group by it
+        batch_column = None
+        for col in df.columns:
+            if 'batch' in str(col).lower() or 'id' in str(col).lower():
+                batch_column = col
+                break
         
-        batch_folders.sort(key=int)  # Sort batch numbers numerically
+        if batch_column:
+            print(f"📊 Found batch column: {batch_column}")
+            batches = df[batch_column].unique()
+            print(f"📋 Available batches: {batches}")
+        else:
+            # Treat all data as one batch
+            batches = ['Baseline']
+            print("📊 No batch column found, treating all data as 'Baseline'")
         
-        for batch in batch_folders:
-            batch_folder_path = os.path.join(data_folder_path, batch)
-            
-            # Look for Excel files in the batch folder
-            excel_files = []
-            if os.path.exists(batch_folder_path):
-                for file in os.listdir(batch_folder_path):
-                    if file.endswith('.xlsx') and not file.startswith('~$'):
-                        excel_files.append(file)
-            
-            # Process the first valid Excel file found (usually should be {batch}.xlsx)
-            processed = False
-            for excel_file in excel_files:
-                excel_path = os.path.join(batch_folder_path, excel_file)
-                if os.path.exists(excel_path):
-                    try:
-                        df = pd.read_excel(excel_path)
-                        
-                        # Extract the parameter values, excluding NaN values
-                        if excel_column in df.columns:
-                            values = df[excel_column].dropna().tolist()
-                            if values:
-                                box_stats = calculate_box_plot_stats(values)
-                                box_stats['batch'] = f'B{batch}'
-                                chart_data[param_name].append(box_stats)
-                                processed = True
-                                break
-                        else:
-                            print(f"Warning: Column '{excel_column}' not found in batch {batch}")
-                            
-                    except Exception as e:
-                        print(f"Error processing batch {batch} file {excel_file}: {e}")
-                        continue
-            
-            # If no valid data was processed for this batch, add zero values
-            if not processed:
-                chart_data[param_name].append({
-                    'batch': f'B{batch}',
-                    'min': 0, 'q1': 0, 'median': 0, 'q3': 0, 'max': 0,
-                    'mean': 0, 'std': 0, 'count': 0
-                })
-    
+    except Exception as e:
+        print(f"❌ Unable to read BaseLine.xlsx: {e}")
+        for k in chart_data:
+            entry = dict(empty_stats)
+            entry['batch'] = 'Error'
+            chart_data[k].append(entry)
+        return chart_data
+
+    # Case-insensitive column access helper
+    colmap = {str(c).upper(): c for c in df.columns}
+
+    for param, col in parameter_mapping.items():
+        col_key = colmap.get(col.upper())
+        if col_key is None:
+            print(f"⚠️ Column not found: {col}")
+            # Try alternative column names
+            for alt_col in df.columns:
+                if param.lower() in str(alt_col).lower():
+                    col_key = alt_col
+                    print(f"✅ Found alternative column for {param}: {alt_col}")
+                    break
+        
+        if col_key is None:
+            # No data found for this parameter
+            stats = dict(empty_stats)
+            stats['batch'] = 'No Data'
+            chart_data[param].append(stats)
+            continue
+        
+        # Process data by batch or as single batch
+        if batch_column and batch_column in df.columns:
+            for batch in batches:
+                batch_data = df[df[batch_column] == batch]
+                vals = pd.to_numeric(batch_data[col_key], errors='coerce').dropna().tolist()
+                stats = calculate_box_plot_stats(vals) if vals else dict(empty_stats)
+                stats['batch'] = str(batch)
+                chart_data[param].append(stats)
+        else:
+            # Single batch (all data)
+            vals = pd.to_numeric(df[col_key], errors='coerce').dropna().tolist()
+            stats = calculate_box_plot_stats(vals) if vals else dict(empty_stats)
+            stats['batch'] = 'Baseline'
+            chart_data[param].append(stats)
+
     return chart_data
 
 def get_parameter_data(parameter):
@@ -132,3 +153,88 @@ def get_parameter_data(parameter):
 def get_all_parameters():
     """Get list of available parameters."""
     return ['PCE', 'FF', 'Max Power', 'HI', 'I_sc', 'V_oc', 'R_series', 'R_shunt']
+
+def extract_device_yield_data():
+    """Extract device yield data with 2.5% quantiles and batch averages for 6 key parameters."""
+    xlsx_path = r"C:\Users\ManishJadhav\ReactProject\Rayleigh-Solar-Tech-Daily-Passdown\Data\BaseLine.xlsx"
+    
+    # Focus on 6 key parameters for device yield
+    yield_parameters = {
+        'PCE': 'PCE (%)',
+        'FF': 'FF (%)', 
+        'Max Power': 'Max Power (mW/cm2)',
+        'HI': 'HI (%)',
+        'I_sc': 'J_sc (mA/cm2)',
+        'V_oc': 'V_oc (V)'
+    }
+    
+    if not os.path.exists(xlsx_path):
+        print(f"⚠️ Excel file not found at: {xlsx_path}")
+        return {'parameters': [], 'batches': [], 'quantiles': {}, 'batch_averages': {}}
+    
+    try:
+        print(f"📊 Reading Excel file for device yield: {xlsx_path}")
+        df = pd.read_excel(xlsx_path)
+        
+        # Find batch column
+        batch_column = None
+        for col in df.columns:
+            if 'batch' in str(col).lower() or 'id' in str(col).lower():
+                batch_column = col
+                break
+        
+        if not batch_column:
+            print("❌ No batch column found for device yield analysis")
+            return {'parameters': [], 'batches': [], 'quantiles': {}, 'batch_averages': {}}
+        
+        batches = sorted(df[batch_column].unique())
+        print(f"📋 Processing {len(batches)} batches for device yield")
+        
+        # Case-insensitive column mapping
+        colmap = {str(c).upper(): c for c in df.columns}
+        
+        result = {
+            'parameters': list(yield_parameters.keys()),
+            'batches': [str(b) for b in batches],
+            'quantiles': {},
+            'batch_averages': {}
+        }
+        
+        # Calculate 2.5% quantiles and batch averages for each parameter
+        for param, col_name in yield_parameters.items():
+            col_key = colmap.get(col_name.upper())
+            if col_key is None:
+                print(f"⚠️ Column not found for {param}: {col_name}")
+                continue
+            
+            # Get all values for this parameter (aggregated across all batches)
+            all_values = pd.to_numeric(df[col_key], errors='coerce').dropna().tolist()
+            
+            if len(all_values) > 0:
+                # Calculate 2.5% quantile (lower threshold)
+                quantile_2_5 = round(quantiles(all_values, n=40)[0], 3)  # 2.5% = 1/40
+                result['quantiles'][param] = quantile_2_5
+                
+                # Calculate batch averages
+                batch_avgs = []
+                for batch in batches:
+                    batch_data = df[df[batch_column] == batch]
+                    batch_values = pd.to_numeric(batch_data[col_key], errors='coerce').dropna().tolist()
+                    if batch_values:
+                        avg = round(mean(batch_values), 3)
+                        batch_avgs.append(avg)
+                    else:
+                        batch_avgs.append(0)
+                
+                result['batch_averages'][param] = batch_avgs
+                print(f"✅ {param}: 2.5% quantile = {quantile_2_5}, batch averages calculated")
+            else:
+                print(f"❌ No valid data for {param}")
+                result['quantiles'][param] = 0
+                result['batch_averages'][param] = [0] * len(batches)
+        
+        return result
+        
+    except Exception as e:
+        print(f"❌ Error extracting device yield data: {e}")
+        return {'parameters': [], 'batches': [], 'quantiles': {}, 'batch_averages': {}}

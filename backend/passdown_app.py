@@ -12,7 +12,7 @@ Features:
 import os
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 
 # Azure Functions imports
@@ -22,10 +22,8 @@ try:
 except ImportError:
     AZURE_FUNCTIONS_AVAILABLE = False
 
-# Detect runtime environment  
-# Set to True only when actually running in Azure Functions context
-AZURE_FUNCTIONS = AZURE_FUNCTIONS_AVAILABLE and hasattr(func, 'HttpRequest') and '__name__' != '__main__'
-AZURE_FUNCTIONS = AZURE_FUNCTIONS_AVAILABLE and hasattr(func, 'HttpRequest') and '__name__' != '__main__'
+# Check if we're actually running in Azure Functions context
+AZURE_FUNCTIONS = AZURE_FUNCTIONS_AVAILABLE and os.getenv('FUNCTIONS_WORKER_RUNTIME') is not None
 
 # Database imports
 try:
@@ -61,7 +59,7 @@ COLLECTIONS = {
 }
 
 class DatabaseManager:
-    """Unified database manager for all collections with connection pooling"""
+    """Unified database manager with connection pooling"""
     
     _shared_client = None
     _shared_db = None
@@ -72,12 +70,12 @@ class DatabaseManager:
         self.db = None
         
     def connect(self):
-        """Connect to MongoDB Atlas with connection reuse"""
+        """Connect to MongoDB Atlas with connection pooling"""
         try:
-            # Use shared connection if available and healthy
+            # Reuse existing connection if available
             if DatabaseManager._shared_client is not None:
                 try:
-                    # Quick health check on existing connection
+                    # Test if connection is still alive
                     DatabaseManager._shared_client.admin.command('ping')
                     self.client = DatabaseManager._shared_client
                     self.db = DatabaseManager._shared_db
@@ -114,20 +112,12 @@ class DatabaseManager:
     
     def _ensure_collections_exist(self):
         """Create collections and indexes if they don't exist"""
-        try:
-            if self.db is None:
-                print("❌ Database not connected")
-                return
-                
-            existing_collections = self.db.list_collection_names()
-            for collection_name in COLLECTIONS.values():
-                if collection_name not in existing_collections:
-                    self.db.create_collection(collection_name)
-                    # Create index on id field for better performance
-                    self.db[collection_name].create_index("id", unique=True)
-                    print(f"✅ Created collection: {collection_name}")
-        except Exception as e:
-            print(f"❌ Failed to ensure collections: {str(e)}")
+        for collection_name in COLLECTIONS.values():
+            if collection_name not in self.db.list_collection_names():
+                self.db.create_collection(collection_name)
+                # Create index on id field for better performance
+                self.db[collection_name].create_index("id", unique=True)
+                print(f"✅ Created collection: {collection_name}")
     
     def get_next_id(self, collection_name: str) -> int:
         """Get the next ID for a collection"""
@@ -136,26 +126,16 @@ class DatabaseManager:
         return (last_doc["id"] + 1) if last_doc else 1
     
     def close(self):
-        """Close database connection - but preserve shared connections for performance"""
+        """Close database connection - but don't close shared connections"""
         # Don't close shared connections to avoid "Cannot use MongoClient after close" errors
-        # The shared connection will be managed by the class-level variables
+        # The shared connection will be reused across requests
         pass
 
 class PassdownAPI:
     """Main API class handling all four features"""
     
     def __init__(self):
-        # Initialize a shared database manager
-        self._db_manager_instance = None
-    
-    def _get_db_connection(self):
-        """Get database connection with connection reuse for better performance"""
-        if self._db_manager_instance is None:
-            self._db_manager_instance = DatabaseManager()
-        
-        if self._db_manager_instance.connect():
-            return self._db_manager_instance
-        return None
+        self.db_manager = DatabaseManager()
         
     def _serialize_datetime(self, obj):
         """Convert datetime objects to ISO format strings"""
@@ -171,28 +151,19 @@ class PassdownAPI:
         """Create standardized API response"""
         serialized_data = self._serialize_datetime(data)
         
-        # Check if we're running in Flask local development mode
-        # Import here to avoid circular imports
-        try:
-            from flask import jsonify
-            # If we're in Flask context, return Flask response
+        if AZURE_FUNCTIONS:
+            return func.HttpResponse(
+                json.dumps(serialized_data),
+                status_code=status_code,
+                mimetype="application/json",
+                headers={
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+                    "Access-Control-Allow-Headers": "Content-Type"
+                }
+            )
+        else:
             return jsonify(serialized_data), status_code
-        except (ImportError, RuntimeError):
-            # If Flask is not available or not in Flask context, use Azure Functions response
-            if AZURE_FUNCTIONS_AVAILABLE:
-                return func.HttpResponse(
-                    json.dumps(serialized_data),
-                    status_code=status_code,
-                    mimetype="application/json",
-                    headers={
-                        "Access-Control-Allow-Origin": "*",
-                        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-                        "Access-Control-Allow-Headers": "Content-Type"
-                    }
-                )
-            else:
-                # Fallback to basic dict response
-                return serialized_data
     
     def _get_request_data(self, req):
         """Extract JSON data from request (Azure Functions or Flask)"""
@@ -209,13 +180,11 @@ class PassdownAPI:
     
     def get_safety_issues(self, req=None):
         """GET /api/safety - Get all safety issues"""
-        db_manager = None
         try:
-            db_manager = self._get_db_connection()
-            if not db_manager:
+            if not self.db_manager.connect():
                 return self._create_response({"error": "Database connection failed"}, 500)
             
-            collection = db_manager.db[COLLECTIONS['safety_issues']]
+            collection = self.db_manager.db[COLLECTIONS['safety_issues']]
             issues = list(collection.find().sort("id", 1))
             
             for issue in issues:
@@ -226,12 +195,10 @@ class PassdownAPI:
         except Exception as e:
             return self._create_response({"error": str(e)}, 500)
         finally:
-            if db_manager:
-                db_manager.close()
+            self.db_manager.close()
     
     def create_safety_issue(self, req):
         """POST /api/safety - Create new safety issue"""
-        db_manager = None
         try:
             data = self._get_request_data(req)
             
@@ -240,20 +207,19 @@ class PassdownAPI:
             if not all(field in data for field in required_fields):
                 return self._create_response({"error": "Missing required fields: issue, person, action"}, 400)
             
-            db_manager = self._get_db_connection()
-            if not db_manager:
+            if not self.db_manager.connect():
                 return self._create_response({"error": "Database connection failed"}, 500)
             
-            collection = db_manager.db[COLLECTIONS['safety_issues']]
-            issue_id = db_manager.get_next_id(COLLECTIONS['safety_issues'])
+            collection = self.db_manager.db[COLLECTIONS['safety_issues']]
+            issue_id = self.db_manager.get_next_id(COLLECTIONS['safety_issues'])
             
             safety_issue = {
                 "id": issue_id,
                 "issue": data['issue'],
                 "person": data['person'],
                 "action": data['action'],
-                "date": datetime.now().strftime("%m/%d"),
-                "timestamp": datetime.now()
+                "date": datetime.utcnow().strftime("%m/%d"),
+                "timestamp": datetime.utcnow()
             }
             
             result = collection.insert_one(safety_issue)
@@ -264,17 +230,15 @@ class PassdownAPI:
         except Exception as e:
             return self._create_response({"error": str(e)}, 500)
         finally:
-            if db_manager:
-                db_manager.close()
+            self.db_manager.close()
     
     def delete_safety_issue(self, req, issue_id):
         """DELETE /api/safety/{id} - Delete safety issue"""
         try:
-            db_manager = self._get_db_connection()
-            if not db_manager:
+            if not self.db_manager.connect():
                 return self._create_response({"error": "Database connection failed"}, 500)
             
-            collection = db_manager.db[COLLECTIONS['safety_issues']]
+            collection = self.db_manager.db[COLLECTIONS['safety_issues']]
             result = collection.delete_one({"id": int(issue_id)})
             
             if result.deleted_count > 0:
@@ -285,8 +249,7 @@ class PassdownAPI:
         except Exception as e:
             return self._create_response({"error": str(e)}, 500)
         finally:
-            if 'db_manager' in locals() and db_manager:
-                db_manager.close()
+            self.db_manager.close()
     
     # ============================================================================
     # KUDOS ENDPOINTS
@@ -294,13 +257,11 @@ class PassdownAPI:
     
     def get_kudos(self, req=None):
         """GET /api/kudos - Get all kudos entries"""
-        db_manager = None
         try:
-            db_manager = self._get_db_connection()
-            if not db_manager:
+            if not self.db_manager.connect():
                 return self._create_response({"error": "Database connection failed"}, 500)
             
-            collection = db_manager.db[COLLECTIONS['kudos']]
+            collection = self.db_manager.db[COLLECTIONS['kudos']]
             kudos = list(collection.find().sort("id", 1))
             
             for entry in kudos:
@@ -311,34 +272,30 @@ class PassdownAPI:
         except Exception as e:
             return self._create_response({"error": str(e)}, 500)
         finally:
-            if db_manager:
-                db_manager.close()
+            self.db_manager.close()
     
     def create_kudos(self, req):
         """POST /api/kudos - Create new kudos entry"""
-        db_manager = None
         try:
             data = self._get_request_data(req)
             
             # Validate required fields
-            required_fields = ['name', 'action', 'by_whom']
+            required_fields = ['name', 'action']
             if not all(field in data for field in required_fields):
-                return self._create_response({"error": "Missing required fields: name, action, by_whom"}, 400)
+                return self._create_response({"error": "Missing required fields: name, action"}, 400)
             
-            db_manager = self._get_db_connection()
-            if not db_manager:
+            if not self.db_manager.connect():
                 return self._create_response({"error": "Database connection failed"}, 500)
             
-            collection = db_manager.db[COLLECTIONS['kudos']]
-            kudos_id = db_manager.get_next_id(COLLECTIONS['kudos'])
+            collection = self.db_manager.db[COLLECTIONS['kudos']]
+            kudos_id = self.db_manager.get_next_id(COLLECTIONS['kudos'])
             
             kudos_entry = {
                 "id": kudos_id,
                 "name": data['name'],
                 "action": data['action'],
-                "by_whom": data['by_whom'],
-                "date": datetime.now().strftime("%m/%d"),
-                "timestamp": datetime.now()
+                "date": datetime.utcnow().strftime("%m/%d"),
+                "timestamp": datetime.utcnow()
             }
             
             result = collection.insert_one(kudos_entry)
@@ -349,17 +306,15 @@ class PassdownAPI:
         except Exception as e:
             return self._create_response({"error": str(e)}, 500)
         finally:
-            if db_manager:
-                db_manager.close()
+            self.db_manager.close()
     
     def delete_kudos(self, req, kudos_id):
         """DELETE /api/kudos/{id} - Delete kudos entry"""
         try:
-            db_manager = self._get_db_connection()
-            if not db_manager:
+            if not self.db_manager.connect():
                 return self._create_response({"error": "Database connection failed"}, 500)
             
-            collection = db_manager.db[COLLECTIONS['kudos']]
+            collection = self.db_manager.db[COLLECTIONS['kudos']]
             result = collection.delete_one({"id": int(kudos_id)})
             
             if result.deleted_count > 0:
@@ -370,8 +325,7 @@ class PassdownAPI:
         except Exception as e:
             return self._create_response({"error": str(e)}, 500)
         finally:
-            if 'db_manager' in locals() and db_manager:
-                db_manager.close()
+            self.db_manager.close()
     
     # ============================================================================
     # TODAY'S ISSUES ENDPOINTS
@@ -379,13 +333,11 @@ class PassdownAPI:
     
     def get_today_issues(self, req=None):
         """GET /api/today - Get all today's top issues"""
-        db_manager = None
         try:
-            db_manager = self._get_db_connection()
-            if not db_manager:
+            if not self.db_manager.connect():
                 return self._create_response({"error": "Database connection failed"}, 500)
             
-            collection = db_manager.db[COLLECTIONS['today_issues']]
+            collection = self.db_manager.db[COLLECTIONS['today_issues']]
             issues = list(collection.find().sort("id", 1))
             
             for issue in issues:
@@ -396,12 +348,10 @@ class PassdownAPI:
         except Exception as e:
             return self._create_response({"error": str(e)}, 500)
         finally:
-            if db_manager:
-                db_manager.close()
+            self.db_manager.close()
     
     def create_today_issue(self, req):
-        """POST /api/today - Create new today's issue (also adds to yesterday for Top Issues)"""
-        db_manager = None
+        """POST /api/today - Create new today's issue"""
         try:
             data = self._get_request_data(req)
             
@@ -410,36 +360,35 @@ class PassdownAPI:
             if not all(field in data for field in required_fields):
                 return self._create_response({"error": "Missing required fields: description, who"}, 400)
             
-            db_manager = self._get_db_connection()
-            if not db_manager:
+            if not self.db_manager.connect():
                 return self._create_response({"error": "Database connection failed"}, 500)
             
-            # Add to today's issues
-            today_collection = db_manager.db[COLLECTIONS['today_issues']]
-            today_issue_id = db_manager.get_next_id(COLLECTIONS['today_issues'])
+            # Add to Today's Issues collection
+            today_collection = self.db_manager.db[COLLECTIONS['today_issues']]
+            today_issue_id = self.db_manager.get_next_id(COLLECTIONS['today_issues'])
             
             today_issue = {
                 "id": today_issue_id,
                 "description": data['description'],
                 "who": data['who'],
-                "date": datetime.now().strftime("%m/%d"),
-                "timestamp": datetime.now()
+                "date": datetime.utcnow().strftime("%m/%d"),
+                "timestamp": datetime.utcnow()
             }
             
             result = today_collection.insert_one(today_issue)
             today_issue["_id"] = str(result.inserted_id)
             
-            # Also add to yesterday's issues (Top Issues) with "done": "No"
-            yesterday_collection = db_manager.db[COLLECTIONS['yesterday_issues']]
-            yesterday_issue_id = db_manager.get_next_id(COLLECTIONS['yesterday_issues'])
+            # AUTOMATICALLY add to Yesterday's Issues (Top Issues) with done: "No"
+            yesterday_collection = self.db_manager.db[COLLECTIONS['yesterday_issues']]
+            yesterday_issue_id = self.db_manager.get_next_id(COLLECTIONS['yesterday_issues'])
             
             yesterday_issue = {
                 "id": yesterday_issue_id,
                 "description": data['description'],
                 "who": data['who'],
-                "done": "No",  # Initially incomplete
-                "date": datetime.now().strftime("%m/%d"),
-                "timestamp": datetime.now()
+                "done": "No",  # Always start as incomplete
+                "date": datetime.utcnow().strftime("%m/%d"),
+                "timestamp": datetime.utcnow()
             }
             
             yesterday_collection.insert_one(yesterday_issue)
@@ -449,17 +398,15 @@ class PassdownAPI:
         except Exception as e:
             return self._create_response({"error": str(e)}, 500)
         finally:
-            if db_manager:
-                db_manager.close()
+            self.db_manager.close()
     
     def delete_today_issue(self, req, issue_id):
         """DELETE /api/today/{id} - Delete today's issue"""
         try:
-            db_manager = self._get_db_connection()
-            if not db_manager:
+            if not self.db_manager.connect():
                 return self._create_response({"error": "Database connection failed"}, 500)
             
-            collection = db_manager.db[COLLECTIONS['today_issues']]
+            collection = self.db_manager.db[COLLECTIONS['today_issues']]
             result = collection.delete_one({"id": int(issue_id)})
             
             if result.deleted_count > 0:
@@ -469,6 +416,8 @@ class PassdownAPI:
                 
         except Exception as e:
             return self._create_response({"error": str(e)}, 500)
+        finally:
+            self.db_manager.close()
     
     # ============================================================================
     # YESTERDAY'S ISSUES ENDPOINTS
@@ -476,13 +425,11 @@ class PassdownAPI:
     
     def get_yesterday_issues(self, req=None):
         """GET /api/yesterday - Get all yesterday's top issues"""
-        db_manager = None
         try:
-            db_manager = self._get_db_connection()
-            if not db_manager:
+            if not self.db_manager.connect():
                 return self._create_response({"error": "Database connection failed"}, 500)
             
-            collection = db_manager.db[COLLECTIONS['yesterday_issues']]
+            collection = self.db_manager.db[COLLECTIONS['yesterday_issues']]
             issues = list(collection.find().sort("id", 1))
             
             for issue in issues:
@@ -493,8 +440,7 @@ class PassdownAPI:
         except Exception as e:
             return self._create_response({"error": str(e)}, 500)
         finally:
-            if db_manager:
-                db_manager.close()
+            self.db_manager.close()
     
     def create_yesterday_issue(self, req):
         """POST /api/yesterday - Create new yesterday's issue"""
@@ -506,20 +452,19 @@ class PassdownAPI:
             if not all(field in data for field in required_fields):
                 return self._create_response({"error": "Missing required fields: description, who, done"}, 400)
             
-            db_manager = self._get_db_connection()
-            if not db_manager:
+            if not self.db_manager.connect():
                 return self._create_response({"error": "Database connection failed"}, 500)
             
-            collection = db_manager.db[COLLECTIONS['yesterday_issues']]
-            issue_id = db_manager.get_next_id(COLLECTIONS['yesterday_issues'])
+            collection = self.db_manager.db[COLLECTIONS['yesterday_issues']]
+            issue_id = self.db_manager.get_next_id(COLLECTIONS['yesterday_issues'])
             
             yesterday_issue = {
                 "id": issue_id,
                 "description": data['description'],
                 "who": data['who'],
                 "done": data['done'],
-                "date": datetime.now().strftime("%m/%d"),
-                "timestamp": datetime.now()
+                "date": datetime.utcnow().strftime("%m/%d"),
+                "timestamp": datetime.utcnow()
             }
             
             result = collection.insert_one(yesterday_issue)
@@ -529,17 +474,18 @@ class PassdownAPI:
             
         except Exception as e:
             return self._create_response({"error": str(e)}, 500)
+        finally:
+            self.db_manager.close()
     
     def update_yesterday_issue(self, req, issue_id):
         """PUT /api/yesterday/{id} - Update yesterday's issue (toggle done status)"""
         try:
             data = self._get_request_data(req)
             
-            db_manager = self._get_db_connection()
-            if not db_manager:
+            if not self.db_manager.connect():
                 return self._create_response({"error": "Database connection failed"}, 500)
             
-            collection = db_manager.db[COLLECTIONS['yesterday_issues']]
+            collection = self.db_manager.db[COLLECTIONS['yesterday_issues']]
             
             update_fields = {}
             if 'done' in data:
@@ -550,7 +496,7 @@ class PassdownAPI:
                 update_fields['who'] = data['who']
             
             if update_fields:
-                update_fields['timestamp'] = datetime.now()
+                update_fields['timestamp'] = datetime.utcnow()
                 result = collection.update_one(
                     {"id": int(issue_id)}, 
                     {"$set": update_fields}
@@ -565,15 +511,16 @@ class PassdownAPI:
                 
         except Exception as e:
             return self._create_response({"error": str(e)}, 500)
+        finally:
+            self.db_manager.close()
     
     def delete_yesterday_issue(self, req, issue_id):
         """DELETE /api/yesterday/{id} - Delete yesterday's issue"""
         try:
-            db_manager = self._get_db_connection()
-            if not db_manager:
+            if not self.db_manager.connect():
                 return self._create_response({"error": "Database connection failed"}, 500)
             
-            collection = db_manager.db[COLLECTIONS['yesterday_issues']]
+            collection = self.db_manager.db[COLLECTIONS['yesterday_issues']]
             result = collection.delete_one({"id": int(issue_id)})
             
             if result.deleted_count > 0:
@@ -583,23 +530,43 @@ class PassdownAPI:
                 
         except Exception as e:
             return self._create_response({"error": str(e)}, 500)
+        finally:
+            self.db_manager.close()
     
     # ============================================================================
-    # HEALTH CHECK
+    # HEALTH CHECK & UTILITIES
     # ============================================================================
+    
+    def reset_today_issues(self, req=None):
+        """POST /api/reset-today - Manually clear Today's Issues for fresh standup"""
+        try:
+            if not self.db_manager.connect():
+                return self._create_response({"error": "Database connection failed"}, 500)
+            
+            collection = self.db_manager.db[COLLECTIONS['today_issues']]
+            # Clear all today's issues for fresh standup
+            result = collection.delete_many({})
+            
+            return self._create_response({
+                "message": f"Today's Issues reset successfully. Cleared {result.deleted_count} items.",
+                "timestamp": datetime.utcnow().isoformat(),
+                "cleared_count": result.deleted_count
+            })
+            
+        except Exception as e:
+            return self._create_response({"error": str(e)}, 500)
+        finally:
+            self.db_manager.close()
     
     def health_check(self, req=None):
         """GET /api/health - Health check endpoint"""
         try:
-            db_manager = self._get_db_connection()
-            db_status = "connected" if db_manager else "disconnected"
-            if db_manager:
-                db_manager.close()
+            db_status = "connected" if self.db_manager.connect() else "disconnected"
             return self._create_response({
                 "status": "healthy",
                 "message": "Passdown API is running",
                 "database": db_status,
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.utcnow().isoformat(),
                 "features": [
                     "Safety Issues Management",
                     "Kudos Management", 
@@ -609,6 +576,8 @@ class PassdownAPI:
             })
         except Exception as e:
             return self._create_response({"error": str(e)}, 500)
+        finally:
+            self.db_manager.close()
 
 # ============================================================================
 # AZURE FUNCTIONS ENTRY POINTS
@@ -674,6 +643,10 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             elif method == 'DELETE':
                 return api.delete_yesterday_issue(req, issue_id)
         
+        elif route == 'reset-today':
+            if method == 'POST':
+                return api.reset_today_issues(req)
+        
         else:
             return func.HttpResponse(
                 json.dumps({"error": "Route not found"}),
@@ -692,16 +665,9 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 # FLASK LOCAL DEVELOPMENT SERVER
 # ============================================================================
 
-def create_flask_app():
-    """Create Flask app for local development"""
-    if not FLASK_AVAILABLE:
-        raise ImportError("Flask is not available. Install with: pip install flask flask-cors")
-    
+if FLASK_AVAILABLE and __name__ == '__main__':
     app = Flask(__name__)
     CORS(app)
-    
-    # Initialize API instance
-    api = PassdownAPI()
     
     # Health check
     @app.route('/api/health', methods=['GET'])
@@ -716,9 +682,9 @@ def create_flask_app():
         elif request.method == 'POST':
             return api.create_safety_issue(request)
     
-    @app.route('/api/safety/<int:safety_id>', methods=['DELETE'])
-    def safety_issue_by_id(safety_id):
-        return api.delete_safety_issue(request, safety_id)
+    @app.route('/api/safety/<int:issue_id>', methods=['DELETE'])
+    def safety_issue_by_id(issue_id):
+        return api.delete_safety_issue(request, issue_id)
     
     # Kudos
     @app.route('/api/kudos', methods=['GET', 'POST'])
@@ -792,87 +758,38 @@ def create_flask_app():
                 'success': False,
                 'error': str(e)
             }), 500
-    
-    # Parquet Data Endpoints
-    @app.route('/api/process-information', methods=['GET'])
-    def get_process_info():
-        """Get process information data from parquet files using REAL data only."""
+
+    @app.route('/api/charts/device-yield', methods=['GET'])
+    def get_device_yield_data():
+        """Get device yield data with 2.5% quantiles and batch averages."""
         try:
-            from real_data_processor import get_process_information
-            result = get_process_information()
-            return jsonify(result)
-        except Exception as e:
+            from data_processor import extract_device_yield_data
+            data = extract_device_yield_data()
             return jsonify({
-                'success': False,
-                'error': f"Real data processor failed: {str(e)}",
-                'data': [],
-                'source': 'error'
-            }), 500
-            # COMMENTED OUT: Fallback to simulated data - we only want real data
-            # try:
-            #     from parquet_processor import get_process_information
-            #     result = get_process_information()
-            #     return jsonify(result)
-            # except Exception as e2:
-            #     return jsonify({
-            #         'success': False,
-            #         'error': f"Both real and simulated processors failed: {str(e)}, {str(e2)}",
-            #         'data': [],
-            #         'source': 'error'
-            #     }), 500
-    
-    @app.route('/api/equipment', methods=['GET'])
-    def get_equipment():
-        """Get equipment list from parquet files using REAL data only."""
-        try:
-            from real_data_processor import get_equipment_list
-            result = get_equipment_list()
-            return jsonify(result)
-        except Exception as e:
-            return jsonify({
-                'success': False,
-                'error': f"Real data processor failed: {str(e)}"
-            }), 500
-            # COMMENTED OUT: Fallback to simulated data - we only want real data
-            # try:
-            #     from parquet_processor import get_equipment_list
-            #     result = get_equipment_list()
-            #     return jsonify(result)
-            # except Exception as e2:
-            #     return jsonify({
-            #         'success': False,
-            #         'error': f"Both real and simulated processors failed: {str(e)}, {str(e2)}"
-            #     }), 500
-    
-    @app.route('/api/data-summary', methods=['GET'])
-    def get_data_summary():
-        """Get a summary of the real data being used."""
-        try:
-            from real_data_processor import get_data_summary
-            result = get_data_summary()
-            return jsonify(result)
+                'success': True,
+                'data': data
+            })
         except Exception as e:
             return jsonify({
                 'success': False,
                 'error': str(e)
             }), 500
-    
-    return app
 
-# Local development server
-if __name__ == '__main__':
+            
+    # Manual reset endpoint
+    @app.route('/api/reset-today', methods=['POST'])
+    def manual_reset_today():
+        return api.reset_today_issues()
+    
+
     print("🚀 Starting Consolidated Passdown API Server")
     print("=" * 50)
     print("📊 Features Available:")
     print("  ✅ Safety Issues Management")
     print("  ✅ Kudos Management")
-    print("  ✅ Today's Top Issues")
-    print("  ✅ Yesterday's Top Issues")
+    print("  ✅ Today's Top Issues (Auto-add to Top Issues)")
+    print("  ✅ Yesterday's Top Issues (Top Issues Tracking)")
+    print("  ✅ Chart Data API")
+    print("   Manual Reset: POST /api/reset-today")
     print("=" * 50)
-    print("📍 Server URL: http://localhost:7071")
-    print("📍 Health Check: http://localhost:7071/api/health")
-    print("=" * 50)
-    
-    # Create and run Flask app for local development
-    app = create_flask_app()
     app.run(host='0.0.0.0', port=7071, debug=True)
