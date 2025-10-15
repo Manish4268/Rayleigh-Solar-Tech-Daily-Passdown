@@ -775,6 +775,22 @@ if FLASK_AVAILABLE and __name__ == '__main__':
                 'error': str(e)
             }), 500
 
+    @app.route('/api/charts/iv-repeatability', methods=['GET'])
+    def get_iv_repeatability_data():
+        """Get IV repeatability data with daily averages for last 10 days."""
+        try:
+            from data_processor import extract_iv_repeatability_data
+            data = extract_iv_repeatability_data()
+            return jsonify({
+                'success': True,
+                'data': data
+            })
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'error': str(e)
+            }), 500
+
             
     # Manual reset endpoint
     @app.route('/api/reset-today', methods=['POST'])

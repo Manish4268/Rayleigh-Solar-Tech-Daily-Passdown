@@ -238,3 +238,114 @@ def extract_device_yield_data():
     except Exception as e:
         print(f"❌ Error extracting device yield data: {e}")
         return {'parameters': [], 'batches': [], 'quantiles': {}, 'batch_averages': {}}
+
+def extract_iv_repeatability_data():
+    """Extract IV repeatability data sorted by dates with daily averages for last 10 days."""
+    xlsx_path = r"C:\Users\ManishJadhav\ReactProject\Rayleigh-Solar-Tech-Daily-Passdown\Data\BaseLine.xlsx"
+    
+    if not os.path.exists(xlsx_path):
+        print(f"⚠️ Excel file not found at: {xlsx_path}")
+        return {'dates': [], 'repeatability_data': []}
+    
+    try:
+        print(f"📊 Reading Excel file for IV repeatability: {xlsx_path}")
+        df = pd.read_excel(xlsx_path)
+        
+        # Find date column
+        date_column = None
+        for col in df.columns:
+            if 'date' in str(col).lower():
+                date_column = col
+                break
+        
+        if not date_column:
+            print("❌ No date column found for IV repeatability analysis")
+            return {'dates': [], 'repeatability_data': []}
+        
+        # Case-insensitive column mapping
+        colmap = {str(c).upper(): c for c in df.columns}
+        
+        # Parameters for IV repeatability analysis
+        iv_parameters = {
+            'PCE': 'PCE (%)',
+            'FF': 'FF (%)',
+            'V_oc': 'V_oc (V)',
+            'I_sc': 'J_sc (mA/cm2)'
+        }
+        
+        # Convert date column to datetime (handle Excel serial dates)
+        if df[date_column].dtype in ['float64', 'int64']:
+            # Excel serial date format - convert from Excel epoch (1900-01-01)
+            # Note: Excel incorrectly treats 1900 as a leap year, so we use 1899-12-30 as epoch
+            try:
+                df[date_column] = pd.to_datetime(df[date_column], origin='1899-12-30', unit='D')
+            except:
+                # Fallback: try treating as days since 1970-01-01
+                df[date_column] = pd.to_datetime(df[date_column], unit='D', origin='unix')
+        else:
+            # Regular datetime parsing
+            df[date_column] = pd.to_datetime(df[date_column], errors='coerce')
+        
+        # Remove rows with invalid dates
+        df = df.dropna(subset=[date_column])
+        
+        if len(df) == 0:
+            print("❌ No valid dates found")
+            return {'dates': [], 'repeatability_data': []}
+        
+        # Sort by date
+        df = df.sort_values(by=date_column)
+        
+        # Get unique dates and calculate daily averages
+        df['date_only'] = df[date_column].dt.date
+        unique_dates = sorted(df['date_only'].unique())
+        
+        print(f"📋 Found {len(unique_dates)} unique dates")
+        
+        # Get last 10 days
+        last_10_dates = unique_dates[-10:] if len(unique_dates) >= 10 else unique_dates
+        
+        daily_data = []
+        
+        for date in last_10_dates:
+            day_data = df[df['date_only'] == date]
+            
+            data_point = {
+                'date': date.strftime('%Y-%m-%d'),
+                'date_short': date.strftime('%m/%d')
+            }
+            
+            # Calculate daily averages for each IV parameter
+            for param, col_name in iv_parameters.items():
+                col_key = colmap.get(col_name.upper())
+                if col_key and col_key in day_data.columns:
+                    values = pd.to_numeric(day_data[col_key], errors='coerce').dropna()
+                    if len(values) > 0:
+                        daily_avg = round(mean(values), 3)
+                        # Calculate coefficient of variation as repeatability metric (std/mean * 100)
+                        if len(values) > 1:
+                            cv = round((stdev(values) / daily_avg * 100), 3) if daily_avg != 0 else 0
+                        else:
+                            cv = 0
+                        data_point[f'{param}_avg'] = daily_avg
+                        data_point[f'{param}_cv'] = cv  # Coefficient of variation as repeatability
+                    else:
+                        data_point[f'{param}_avg'] = 0
+                        data_point[f'{param}_cv'] = 0
+                else:
+                    data_point[f'{param}_avg'] = 0
+                    data_point[f'{param}_cv'] = 0
+            
+            daily_data.append(data_point)
+        
+        print(f"✅ Processed {len(daily_data)} days of IV repeatability data")
+        
+        return {
+            'dates': [d['date'] for d in daily_data],
+            'repeatability_data': daily_data,
+            'parameters': list(iv_parameters.keys())
+        }
+        
+    except Exception as e:
+        print(f"❌ Error extracting IV repeatability data: {e}")
+        return {'dates': [], 'repeatability_data': []}

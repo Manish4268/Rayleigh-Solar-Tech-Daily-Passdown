@@ -11,6 +11,7 @@ import { Plus, Menu, Trash2, Edit } from "lucide-react"
 import { todayAPI, yesterdayAPI, safetyAPI, kudosAPI, healthAPI, resetAPI } from "@/lib/api"
 import ParameterChart from "@/components/ParameterChart"
 import DeviceYieldChart from "@/components/DeviceYieldChart"
+import IVRepeatabilityChart from "@/components/IVRepeatabilityChart"
 
 // Sample data
 const processData = [
@@ -824,36 +825,7 @@ export default function ProductionDashboard() {
           <DeviceYieldChart />
 
           {/* 3. IV Repeatability Analysis */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-xl font-semibold text-balance">IV Repeatability Analysis</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={300}>
-                <LineChart data={repeatabilityData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f59e0b" opacity={0.2} />
-                  <XAxis dataKey="time" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
-                  <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "#1e293b",
-                      border: "1px solid #f59e0b",
-                      borderRadius: "8px",
-                      color: "#f1f5f9",
-                    }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="value"
-                    stroke="#f59e0b"
-                    strokeWidth={4}
-                    dot={{ fill: "#f59e0b", strokeWidth: 2, r: 6 }}
-                    activeDot={{ r: 8, fill: "#d97706", stroke: "#f59e0b", strokeWidth: 2 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
+          <IVRepeatabilityChart />
         </div>
       </div>
     </div>

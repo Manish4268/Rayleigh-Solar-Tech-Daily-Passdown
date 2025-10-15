@@ -178,4 +178,10 @@ export const chartAPI = {
     const response = await fetch(`${API_BASE_URL}/charts/device-yield`);
     return handleResponse(response);
   },
+
+  // Get IV repeatability data with daily averages for last 10 days
+  getIVRepeatability: async () => {
+    const response = await fetch(`${API_BASE_URL}/charts/iv-repeatability`);
+    return handleResponse(response);
+  },
 };
