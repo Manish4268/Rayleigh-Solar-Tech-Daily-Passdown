@@ -262,13 +262,18 @@ class StabilityDeviceModel:
             print(f"Created collection: {self.collection_name}")
     
     def _parse_datetime(self, date_str: str, time_str: str) -> datetime:
-        """Parse date and time strings into a datetime object"""
+        """Parse date and time strings into a datetime object with seconds precision"""
         try:
-            # Combine date and time strings and parse
+            # Try to parse with seconds first, then without
             datetime_str = f"{date_str} {time_str}"
-            return datetime.strptime(datetime_str, '%Y-%m-%d %H:%M')
+            try:
+                # First try with seconds format
+                return datetime.strptime(datetime_str, '%Y-%m-%d %H:%M:%S')
+            except ValueError:
+                # Fallback to minutes only format
+                return datetime.strptime(datetime_str, '%Y-%m-%d %H:%M')
         except ValueError as e:
-            raise Exception(f"Invalid date/time format. Expected YYYY-MM-DD for date and HH:MM for time: {str(e)}")
+            raise Exception(f"Invalid date/time format. Expected YYYY-MM-DD for date and HH:MM or HH:MM:SS for time: {str(e)}")
     
     def check_expired_devices(self) -> List[Dict]:
         """Check for devices that have exceeded their time_hours and should be auto-removed"""
@@ -568,6 +573,10 @@ class StabilityHistoryModel:
                 "out_time": device_data.get("out_time"),
                 "out_datetime": device_data.get("out_datetime"),
                 "planned_time_hours": device_data["time_hours"],
+                "duration_hours": device_data.get("duration_hours", 0),
+                "duration_minutes": device_data.get("duration_minutes", 0),
+                "duration_seconds": device_data.get("duration_seconds", 0),
+                "total_duration_seconds": device_data.get("total_duration_seconds", 0),
                 "actual_removal_time": device_data.get("actual_removal_time"),
                 "actual_hours_stayed": device_data.get("actual_hours_stayed"),
                 "actual_days_stayed": device_data.get("actual_days_stayed"),

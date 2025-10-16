@@ -87,7 +87,8 @@ const DevicePopup = ({
   onRefresh,
   onHistory,
   historyItems,
-  onHistoryItemClick 
+  onHistoryItemClick,
+  isExistingDevice = false  // New prop to distinguish existing vs new devices
 }) => {
   const [editableData, setEditableData] = useState(deviceData || {});
   const [savedData, setSavedData] = useState(deviceData || {});
@@ -275,7 +276,17 @@ const DevicePopup = ({
             </div>
 
             {/* Show calculated Out Date and Out Time */}
-            {editableData.inDate && editableData.inTime && (editableData.hours || editableData.minutes || editableData.seconds) && (
+            {editableData.inDate && editableData.inTime && (
+              // For existing devices (green grid), always show if device has data
+              // For new devices (gray grid), only show if at least one duration component > 0
+              isExistingDevice ? 
+                (editableData.id && editableData.id.trim() !== '') || 
+                (editableData.hours > 0) || (editableData.minutes > 0) || (editableData.seconds > 0) ||
+                (editableData.time && editableData.time > 0)
+              : 
+                (editableData.hours > 0) || (editableData.minutes > 0) || (editableData.seconds > 0) ||
+                (editableData.time && editableData.time > 0)
+            ) && (
               <div className="bg-gray-700 p-3 rounded border border-gray-600">
                 <label className="block text-sm font-medium mb-1 text-green-400">Calculated Out Date & Time:</label>
                 <div className="text-white">
@@ -527,6 +538,7 @@ export default function StabilityDashboard() {
   const [historyDevicePopupOpen, setHistoryDevicePopupOpen] = useState(false);
   const [selectedHistoryDevice, setSelectedHistoryDevice] = useState(null);
   const [currentSlotInfo, setCurrentSlotInfo] = useState(null);
+  const [isExistingDevice, setIsExistingDevice] = useState(false); // Track if device already exists
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -563,14 +575,37 @@ export default function StabilityDashboard() {
     }
     
     if (device) {
-      setSelectedDevice(device);
+      // This is an existing device (green grid)
+      setIsExistingDevice(true);
+      
+      // Map the device data to the expected format for DevicePopup
+      const mappedDevice = {
+        id: device.id,
+        inDate: device.inDate,
+        inTime: device.inTime || '00:00', // Ensure we have inTime
+        outDate: device.outDate,
+        time: device.time,
+        hours: device.duration_hours || 0,
+        minutes: device.duration_minutes || 0,
+        seconds: device.duration_seconds || 0
+      };
+      console.log('Mapped device data for popup:', mappedDevice);
+      setSelectedDevice(mappedDevice);
     } else {
-      // Create a new device for empty slot
+      // This is a new device slot (gray grid)
+      setIsExistingDevice(false);
+      
+      // Create a new device for empty slot with current precise time
+      const now = new Date();
       setSelectedDevice({
         id: '',
-        inDate: new Date().toISOString().split('T')[0],
+        inDate: now.toISOString().split('T')[0],
+        inTime: now.toTimeString().substr(0, 8), // HH:MM:SS format for precision
         outDate: '',
-        time: 0
+        time: 0,
+        hours: 0,
+        minutes: 0,
+        seconds: 0
       });
     }
     setDevicePopupOpen(true);
@@ -785,6 +820,7 @@ export default function StabilityDashboard() {
         onRefresh={() => {}}
         historyItems={historyItems}
         onHistoryItemClick={handleHistoryItemClick}
+        isExistingDevice={isExistingDevice}
       />
 
       {/* History Device Popup */}

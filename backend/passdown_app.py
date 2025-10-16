@@ -14,6 +14,17 @@ import json
 import logging
 from datetime import datetime
 from typing import List, Dict, Optional
+import threading
+import time
+
+# Scheduler imports
+try:
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from apscheduler.triggers.interval import IntervalTrigger
+    SCHEDULER_AVAILABLE = True
+except ImportError:
+    SCHEDULER_AVAILABLE = False
+    print("⚠️  APScheduler not available - automatic device removal will be disabled")
 
 # Azure Functions imports
 try:
@@ -700,6 +711,98 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         )
 
 # ============================================================================
+# AUTOMATIC DEVICE REMOVAL SCHEDULER
+# ============================================================================
+
+def automatic_device_checker():
+    """Background function to automatically check and remove expired devices"""
+    try:
+        if not STABILITY_MODELS_AVAILABLE:
+            return
+            
+        print(f"🤖 [{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Running automatic device expiry check...")
+        
+        # Create API instance and check for expired devices
+        api = PassdownAPI()
+        db_manager = api._get_db_connection()
+        if not db_manager:
+            print("❌ Database connection failed during automatic check")
+            return
+            
+        # Create a stability database manager using the working connection
+        stability_db = StabilityDatabaseManager()
+        stability_db.client = db_manager.client
+        stability_db.db = db_manager.db
+        
+        device_model = StabilityDeviceModel(stability_db)
+        
+        # Check for expired devices
+        expired_devices = device_model.check_expired_devices()
+        
+        if expired_devices:
+            print(f"⚠️  Found {len(expired_devices)} expired devices - processing removal...")
+            removed_count = 0
+            
+            for device in expired_devices:
+                success = device_model.soft_delete(
+                    section_key=device['section_key'],
+                    subsection_key=device['subsection_key'],
+                    row=device['row'],
+                    col=device['col'],
+                    removed_by='system'
+                )
+                if success:
+                    removed_count += 1
+                    print(f"✅ Auto-removed device {device['device_id']} from {device['section_key']}/{device['subsection_key']} ({device['row']},{device['col']})")
+            
+            print(f"🎯 Automatic removal complete: {removed_count}/{len(expired_devices)} devices processed")
+        else:
+            print("✓ No expired devices found")
+            
+        # Close connections if needed
+        if hasattr(db_manager, 'close_connection'):
+            db_manager.close_connection()
+        elif hasattr(db_manager, 'close'):
+            db_manager.close()
+            
+    except Exception as e:
+        print(f"❌ Error in automatic device checker: {str(e)}")
+
+def setup_automatic_scheduler():
+    """Setup the background scheduler for automatic device removal"""
+    if not SCHEDULER_AVAILABLE:
+        print("⚠️  Scheduler not available - automatic device removal is disabled")
+        return None
+        
+    try:
+        scheduler = BackgroundScheduler()
+        
+        # Schedule the automatic checker to run every minute
+        scheduler.add_job(
+            func=automatic_device_checker,
+            trigger=IntervalTrigger(minutes=1),  # Run every minute
+            id='automatic_device_checker',
+            name='Automatic Device Expiry Checker',
+            replace_existing=True
+        )
+        
+        # Also run immediately at startup (but in a separate thread to avoid blocking)
+        def delayed_initial_check():
+            time.sleep(10)  # Wait 10 seconds after startup
+            automatic_device_checker()
+        
+        initial_check_thread = threading.Thread(target=delayed_initial_check, daemon=True)
+        initial_check_thread.start()
+        
+        scheduler.start()
+        print("🤖 Automatic device removal scheduler started - checking every minute")
+        return scheduler
+        
+    except Exception as e:
+        print(f"❌ Failed to setup automatic scheduler: {str(e)}")
+        return None
+
+# ============================================================================
 # FLASK LOCAL DEVELOPMENT SERVER
 # ============================================================================
 
@@ -819,8 +922,12 @@ def create_flask_app():
                     grid_data[section_key][subsection_key]["devices"][slot_key] = {
                         "id": device["device_id"],
                         "inDate": device["in_date"][:10] if isinstance(device["in_date"], str) else device["in_date"].strftime("%Y-%m-%d"),
+                        "inTime": device.get("in_time", "00:00"),
                         "outDate": device["out_date"][:10] if isinstance(device["out_date"], str) else device["out_date"].strftime("%Y-%m-%d"),
-                        "time": device["time_hours"]
+                        "time": device["time_hours"],
+                        "duration_hours": device.get("duration_hours", 0),
+                        "duration_minutes": device.get("duration_minutes", 0),
+                        "duration_seconds": device.get("duration_seconds", 0)
                     }
             
             # Close connections if needed
@@ -871,10 +978,30 @@ def create_flask_app():
             
             elif request.method == 'POST':
                 data = request.get_json()
-                required_fields = ['sectionKey', 'subsectionKey', 'row', 'col', 'deviceId', 'inDate', 'inTime', 'timeHours', 'createdBy']
+                required_fields = ['sectionKey', 'subsectionKey', 'row', 'col', 'deviceId', 'inDate', 'inTime', 'createdBy']
                 
                 if not all(field in data for field in required_fields):
                     return jsonify({'success': False, 'error': 'Missing required fields'}), 400
+                
+                # Handle time duration - accept either legacy timeHours or new hours/minutes/seconds format
+                time_hours = 0
+                if 'timeHours' in data:
+                    time_hours = float(data['timeHours'])
+                else:
+                    # Calculate time_hours from hours, minutes, seconds - ensure all are integers
+                    hours = int(data.get('hours', 0)) if data.get('hours', 0) != '' else 0
+                    minutes = int(data.get('minutes', 0)) if data.get('minutes', 0) != '' else 0
+                    seconds = int(data.get('seconds', 0)) if data.get('seconds', 0) != '' else 0
+                    
+                    # Validate that at least one component is greater than 0
+                    if hours == 0 and minutes == 0 and seconds == 0:
+                        return jsonify({'success': False, 'error': 'Duration must be greater than 0. Please enter hours, minutes, or seconds.'}), 400
+                    
+                    time_hours = hours + (minutes / 60) + (seconds / 3600)
+                
+                # Ensure minimum duration
+                if time_hours <= 0:
+                    return jsonify({'success': False, 'error': 'Duration must be greater than 0'}), 400
                 
                 device = device_model.create(
                     section_key=data['sectionKey'],
@@ -884,8 +1011,12 @@ def create_flask_app():
                     device_id=data['deviceId'],
                     in_date=data['inDate'],
                     in_time=data['inTime'],
-                    time_hours=data['timeHours'],
-                    created_by=data['createdBy']
+                    time_hours=time_hours,
+                    created_by=data['createdBy'],
+                    # Store original time components for display - ensure integers
+                    time_hours_component=int(data.get('hours', 0)) if data.get('hours', 0) != '' else 0,
+                    time_minutes_component=int(data.get('minutes', 0)) if data.get('minutes', 0) != '' else 0,
+                    time_seconds_component=int(data.get('seconds', 0)) if data.get('seconds', 0) != '' else 0
                 )
                 
                 # Close connections if needed
@@ -901,12 +1032,41 @@ def create_flask_app():
         except Exception as e:
             return jsonify({'success': False, 'error': str(e)}), 500
 
-    @app.route('/api/stability/devices/<section_key>/<subsection_key>/<int:row>/<int:col>', methods=['PUT', 'DELETE'])
-    def stability_device_by_position(section_key, subsection_key, row, col):
+    @app.route('/api/stability/devices/<path:device_path>', methods=['PUT', 'DELETE'])
+    def stability_device_by_position(device_path):
         """Update or delete stability device by position."""
         try:
             if not STABILITY_MODELS_AVAILABLE:
                 return jsonify({'success': False, 'error': 'Stability models not available'}), 500
+            
+            # Parse the device_path manually to handle forward slashes correctly
+            # Expected format: section_key/subsection_key/row/col
+            # where section_key might contain forward slashes (like "LS w/Temp")
+            
+            from urllib.parse import unquote
+            # URL decode the entire path first
+            decoded_path = unquote(device_path)
+            print(f"DEBUG: Received device_path: {device_path}")
+            print(f"DEBUG: Decoded device_path: {decoded_path}")
+            
+            # Split from the right to get row and col first
+            path_parts = decoded_path.split('/')
+            print(f"DEBUG: Path parts: {path_parts}")
+            
+            if len(path_parts) < 4:
+                return jsonify({'success': False, 'error': 'Invalid device path format'}), 400
+            
+            # Extract row and col from the end
+            try:
+                col = int(path_parts[-1])
+                row = int(path_parts[-2])
+                subsection_key = path_parts[-3]
+                # Everything before subsection_key is part of section_key
+                section_key = '/'.join(path_parts[:-3])
+            except (ValueError, IndexError):
+                return jsonify({'success': False, 'error': 'Invalid row/col values'}), 400
+            
+            print(f"DEBUG: Parsed - section_key='{section_key}', subsection_key='{subsection_key}', row={row}, col={col}")
             
             # Handle empty subsection_key placeholder
             if subsection_key == '_empty_':
@@ -977,12 +1137,28 @@ def create_flask_app():
         except Exception as e:
             return jsonify({'success': False, 'error': str(e)}), 500
 
-    @app.route('/api/stability/history/<section_key>/<subsection_key>/<int:row>/<int:col>', methods=['GET'])
-    def get_stability_history(section_key, subsection_key, row, col):
+    @app.route('/api/stability/history/<path:device_path>', methods=['GET'])
+    def get_stability_history(device_path):
         """Get history for specific stability slot."""
         try:
             if not STABILITY_MODELS_AVAILABLE:
                 return jsonify({'success': False, 'error': 'Stability models not available'}), 500
+            
+            # Parse the device_path manually to handle forward slashes correctly
+            from urllib.parse import unquote
+            decoded_path = unquote(device_path)
+            path_parts = decoded_path.split('/')
+            
+            if len(path_parts) < 4:
+                return jsonify({'success': False, 'error': 'Invalid device path format'}), 400
+            
+            try:
+                col = int(path_parts[-1])
+                row = int(path_parts[-2])
+                subsection_key = path_parts[-3]
+                section_key = '/'.join(path_parts[:-3])
+            except (ValueError, IndexError):
+                return jsonify({'success': False, 'error': 'Invalid row/col values'}), 400
             
             # Handle empty subsection_key placeholder
             if subsection_key == '_empty_':
@@ -1005,23 +1181,48 @@ def create_flask_app():
                 elif isinstance(in_date, str) and len(in_date) >= 10:
                     in_date = in_date[:10]
                 
-                out_date = item.get("out_date", "")
-                if hasattr(out_date, 'strftime'):
-                    out_date = out_date.strftime("%Y-%m-%d")
-                elif isinstance(out_date, str) and len(out_date) >= 10:
-                    out_date = out_date[:10]
+                # Format actual removal time for outDate and outTime display
+                actual_removal_time = item.get("actual_removal_time", "")
+                actual_out_date = ""
+                actual_out_time = ""
+                
+                if hasattr(actual_removal_time, 'strftime'):
+                    actual_out_date = actual_removal_time.strftime("%Y-%m-%d")
+                    actual_out_time = actual_removal_time.strftime("%H:%M")
+                elif isinstance(actual_removal_time, str) and len(actual_removal_time) >= 16:
+                    actual_out_date = actual_removal_time[:10]
+                    actual_out_time = actual_removal_time[11:16]
+                
+                # If no actual removal time, fall back to planned times
+                if not actual_out_date:
+                    out_date = item.get("out_date", "")
+                    if hasattr(out_date, 'strftime'):
+                        actual_out_date = out_date.strftime("%Y-%m-%d")
+                    elif isinstance(out_date, str) and len(out_date) >= 10:
+                        actual_out_date = out_date[:10]
+                    actual_out_time = item.get("out_time", "")
                 
                 formatted_history.append({
                     "deviceId": item["device_id"],
                     "inDate": in_date,
                     "inTime": item.get("in_time", ""),
-                    "outDate": out_date,
-                    "outTime": item.get("out_time", ""),
-                    "timeHours": item["time_hours"],
+                    "outDate": actual_out_date,  # Show actual removal date
+                    "outTime": actual_out_time,  # Show actual removal time
+                    "plannedTimeHours": item.get("planned_time_hours", item.get("time_hours", 0)),
+                    "duration_hours": item.get("duration_hours", 0),
+                    "duration_minutes": item.get("duration_minutes", 0),
+                    "duration_seconds": item.get("duration_seconds", 0),
+                    "actualHoursStayed": item.get("actual_hours_stayed", 0),
+                    "actualDaysStayed": item.get("actual_days_stayed", 0),
+                    "plannedDays": item.get("planned_days", 0),
+                    "isEarlyRemoval": item.get("is_early_removal", False),
+                    "removalType": item.get("removal_type", "manual"),
+                    "hoursDifference": item.get("hours_difference", 0),
                     "placedBy": item.get("created_by", "unknown"),
                     "removedBy": item.get("removed_by", "unknown"),
                     "placedAt": item.get("original_created_at", "").isoformat() if hasattr(item.get("original_created_at", ""), 'isoformat') else item.get("original_created_at", ""),
-                    "removedAt": item.get("moved_to_history_at", "").isoformat() if hasattr(item.get("moved_to_history_at", ""), 'isoformat') else item.get("moved_to_history_at", "")
+                    "removedAt": item.get("moved_to_history_at", "").isoformat() if hasattr(item.get("moved_to_history_at", ""), 'isoformat') else item.get("moved_to_history_at", ""),
+                    "actualRemovalTime": actual_removal_time.strftime("%Y-%m-%d %H:%M") if hasattr(actual_removal_time, 'strftime') else str(actual_removal_time)
                 })
             
             # Close connections if needed
@@ -1067,6 +1268,65 @@ def create_flask_app():
                 'success': True,
                 'message': f'Automatically removed {removed_count} expired devices',
                 'removed_count': removed_count
+            })
+            
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)}), 500
+
+    @app.route('/api/stability/process-expired', methods=['POST'])
+    def process_expired_devices():
+        """Process expired devices automatically and return details of processed devices"""
+        try:
+            if not STABILITY_MODELS_AVAILABLE:
+                return jsonify({'success': False, 'error': 'Stability models not available'}), 500
+            
+            # Use the working database connection from homepage
+            api = PassdownAPI()
+            db_manager = api._get_db_connection()
+            if not db_manager:
+                return jsonify({'success': False, 'error': 'Database connection failed'}), 500
+                
+            # Create a stability database manager using the working connection
+            stability_db = StabilityDatabaseManager()
+            stability_db.client = db_manager.client
+            stability_db.db = db_manager.db
+            
+            device_model = StabilityDeviceModel(stability_db)
+            
+            # First get list of expired devices before processing
+            expired_devices = device_model.check_expired_devices()
+            processed_devices = []
+            
+            for device in expired_devices:
+                # Process each expired device
+                success = device_model.soft_delete(
+                    section_key=device['section_key'],
+                    subsection_key=device['subsection_key'],
+                    row=device['row'],
+                    col=device['col'],
+                    removed_by='system'
+                )
+                if success:
+                    processed_devices.append({
+                        'deviceId': device['device_id'],
+                        'sectionKey': device['section_key'],
+                        'subsectionKey': device['subsection_key'],
+                        'row': device['row'],
+                        'col': device['col'],
+                        'processedAt': datetime.utcnow().isoformat()
+                    })
+            
+            # Close connections if needed
+            if hasattr(db_manager, 'close_connection'):
+                db_manager.close_connection()
+            elif hasattr(db_manager, 'close'):
+                db_manager.close()
+            
+            return jsonify({
+                'success': True,
+                'message': f'Processed {len(processed_devices)} expired devices',
+                'processed_count': len(processed_devices),
+                'processed_devices': processed_devices
             })
             
         except Exception as e:
@@ -1205,6 +1465,12 @@ def create_flask_app():
                 'error': str(e)
             }), 500
     
+    # Setup automatic device removal scheduler
+    scheduler = setup_automatic_scheduler()
+    if scheduler:
+        # Store scheduler in app for cleanup on shutdown
+        app.scheduler = scheduler
+    
     return app
 
 # Local development server
@@ -1216,6 +1482,7 @@ if __name__ == '__main__':
     print("  ✅ Kudos Management")
     print("  ✅ Today's Top Issues")
     print("  ✅ Yesterday's Top Issues")
+    print("  🤖 Automatic Device Removal (Every Minute)")
     print("=" * 50)
     print("📍 Server URL: http://localhost:7071")
     print("📍 Health Check: http://localhost:7071/api/health")
@@ -1223,4 +1490,13 @@ if __name__ == '__main__':
     
     # Create and run Flask app for local development
     app = create_flask_app()
-    app.run(host='0.0.0.0', port=7071, debug=True)
+    
+    try:
+        app.run(host='0.0.0.0', port=7071, debug=True)
+    except KeyboardInterrupt:
+        print("\n🛑 Server shutdown requested...")
+        # Clean up scheduler if it exists
+        if hasattr(app, 'scheduler') and app.scheduler:
+            print("🤖 Shutting down automatic scheduler...")
+            app.scheduler.shutdown()
+        print("👋 Server stopped gracefully")
