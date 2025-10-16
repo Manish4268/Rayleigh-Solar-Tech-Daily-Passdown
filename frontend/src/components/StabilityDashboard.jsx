@@ -124,6 +124,17 @@ const DevicePopup = ({
       alert('Please enter your name for tracking changes');
       return;
     }
+    
+    // Validate that at least one time component is greater than 0
+    const hours = editableData.hours || 0;
+    const minutes = editableData.minutes || 0;
+    const seconds = editableData.seconds || 0;
+    
+    if (hours === 0 && minutes === 0 && seconds === 0) {
+      alert('Duration must be greater than 0. Please enter hours, minutes, or seconds.');
+      return;
+    }
+    
     setSavedData({ ...editableData });
     onSave(editableData, personName);
   };
@@ -194,26 +205,89 @@ const DevicePopup = ({
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1 text-white">Time: {editableData.time || 0} hrs</label>
-              <Input
-                type="number"
-                value={editableData.time || ''}
-                onChange={(e) => setEditableData({ ...editableData, time: parseInt(e.target.value) || 0 })}
-                placeholder="Enter time in hours"
-                className="bg-gray-800 text-white border-gray-600"
-              />
+              <label className="block text-sm font-medium mb-1 text-white">
+                Duration: {editableData.hours || 0}h {editableData.minutes || 0}m {editableData.seconds || 0}s
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Hours</label>
+                  <Input
+                    type="number"
+                    value={editableData.hours || ''}
+                    onChange={(e) => {
+                      const hours = e.target.value === '' ? 0 : parseInt(e.target.value) || 0;
+                      const minutes = editableData.minutes || 0;
+                      const seconds = editableData.seconds || 0;
+                      setEditableData({ 
+                        ...editableData, 
+                        hours: hours,
+                        time: (hours + (minutes / 60) + (seconds / 3600)).toFixed(4)
+                      });
+                    }}
+                    placeholder="0"
+                    min="0"
+                    className="bg-gray-800 text-white border-gray-600"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Minutes</label>
+                  <Input
+                    type="number"
+                    value={editableData.minutes || ''}
+                    onChange={(e) => {
+                      const minutes = e.target.value === '' ? 0 : parseInt(e.target.value) || 0;
+                      const hours = editableData.hours || 0;
+                      const seconds = editableData.seconds || 0;
+                      setEditableData({ 
+                        ...editableData, 
+                        minutes: minutes,
+                        time: (hours + (minutes / 60) + (seconds / 3600)).toFixed(4)
+                      });
+                    }}
+                    placeholder="0"
+                    min="0"
+                    max="59"
+                    className="bg-gray-800 text-white border-gray-600"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Seconds</label>
+                  <Input
+                    type="number"
+                    value={editableData.seconds || ''}
+                    onChange={(e) => {
+                      const seconds = e.target.value === '' ? 0 : parseInt(e.target.value) || 0;
+                      const hours = editableData.hours || 0;
+                      const minutes = editableData.minutes || 0;
+                      setEditableData({ 
+                        ...editableData, 
+                        seconds: seconds,
+                        time: (hours + (minutes / 60) + (seconds / 3600)).toFixed(4)
+                      });
+                    }}
+                    placeholder="0"
+                    min="0"
+                    max="59"
+                    className="bg-gray-800 text-white border-gray-600"
+                  />
+                </div>
+              </div>
             </div>
 
             {/* Show calculated Out Date and Out Time */}
-            {editableData.inDate && editableData.inTime && editableData.time && (
+            {editableData.inDate && editableData.inTime && (editableData.hours || editableData.minutes || editableData.seconds) && (
               <div className="bg-gray-700 p-3 rounded border border-gray-600">
                 <label className="block text-sm font-medium mb-1 text-green-400">Calculated Out Date & Time:</label>
                 <div className="text-white">
+                  <div>Duration: {editableData.hours || 0}h {editableData.minutes || 0}m {editableData.seconds || 0}s</div>
                   {(() => {
                     try {
                       const inDateTime = new Date(`${editableData.inDate}T${editableData.inTime}`);
-                      const outDateTime = new Date(inDateTime.getTime() + (editableData.time * 60 * 60 * 1000));
-                      return `${outDateTime.toLocaleDateString()} at ${outDateTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`;
+                      const totalMs = ((editableData.hours || 0) * 3600 + 
+                                      (editableData.minutes || 0) * 60 + 
+                                      (editableData.seconds || 0)) * 1000;
+                      const outDateTime = new Date(inDateTime.getTime() + totalMs);
+                      return `${outDateTime.toLocaleDateString()} at ${outDateTime.toLocaleTimeString()}`;
                     } catch (e) {
                       return 'Invalid date/time';
                     }
@@ -302,7 +376,9 @@ const DevicePopup = ({
                           {item.inDate} {item.inTime} → {item.outDate} {item.outTime}
                         </p>
                         <p className="text-xs text-gray-500">
-                          {item.timeHours} hrs | Placed by: {item.placedBy} | Removed by: {item.removedBy}
+                                                  <div className="text-sm text-gray-300">
+                          {item.duration_hours || 0}h {item.duration_minutes || 0}m {item.duration_seconds || 0}s | Placed by: {item.placedBy} | Removed by: {item.removedBy}
+                        </div>
                         </p>
                       </CardContent>
                     </Card>
@@ -322,27 +398,25 @@ const DevicePopup = ({
 const HistoryDevicePopup = ({ open, onOpenChange, deviceData }) => {
   if (!deviceData) return null;
 
-  const calculateProgress = () => {
-    if (!deviceData.inDate || !deviceData.inTime || !deviceData.time) return 0;
+  const calculateActualProgress = () => {
+    // For history items, show 100% since they are completed
+    return 100;
+  };
+
+  const formatDecimalHoursToHMS = (decimalHours) => {
+    if (!decimalHours || decimalHours === 0) return '0h 0m 0s';
     
-    try {
-      const now = new Date();
-      const inDateTime = new Date(`${deviceData.inDate}T${deviceData.inTime}`);
-      const outDateTime = new Date(inDateTime.getTime() + (deviceData.time * 60 * 60 * 1000));
-      
-      const totalDuration = outDateTime - inDateTime;
-      const elapsed = now - inDateTime;
-      
-      return Math.min(Math.max((elapsed / totalDuration) * 100, 0), 100);
-    } catch (error) {
-      console.error('Error calculating progress:', error);
-      return 0;
-    }
+    const totalSeconds = Math.round(decimalHours * 3600);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    
+    return `${hours}h ${minutes}m ${seconds}s`;
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md bg-black text-white border border-gray-600 [&>button]:hidden">
+      <DialogContent className="max-w-2xl bg-black text-white border border-gray-600 [&>button]:hidden">
         <DialogHeader>
           <DialogTitle className="flex items-center justify-between text-white">
             History Device Information
@@ -361,37 +435,83 @@ const HistoryDevicePopup = ({ open, onOpenChange, deviceData }) => {
           <div>
             <label className="block text-sm font-medium mb-1 text-white">Device ID:</label>
             <div className="bg-gray-800 text-white border border-gray-600 rounded px-3 py-2">
-              {deviceData.id}
+              {deviceData.deviceId || 'N/A'}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium mb-1 text-white">In Date:</label>
+              <div className="bg-gray-800 text-white border border-gray-600 rounded px-3 py-2">
+                {deviceData.inDate || 'N/A'}
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1 text-white">In Time:</label>
+              <div className="bg-gray-800 text-white border border-gray-600 rounded px-3 py-2">
+                {deviceData.inTime || 'N/A'}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium mb-1 text-white">Out Date (Actual):</label>
+              <div className="bg-gray-800 text-white border border-gray-600 rounded px-3 py-2">
+                {deviceData.outDate || 'N/A'}
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1 text-white">Out Time (Actual):</label>
+              <div className="bg-gray-800 text-white border border-gray-600 rounded px-3 py-2">
+                {deviceData.outTime || 'N/A'}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium mb-1 text-white">Planned Time:</label>
+              <div className="bg-gray-800 text-white border border-gray-600 rounded px-3 py-2">
+                {deviceData.duration_hours || 0}h {deviceData.duration_minutes || 0}m {deviceData.duration_seconds || 0}s
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1 text-white">Actual Time Stayed:</label>
+              <div className="bg-gray-800 text-white border border-gray-600 rounded px-3 py-2">
+                {deviceData.actualHoursStayed ? formatDecimalHoursToHMS(deviceData.actualHoursStayed) : '0h 0m 0s'}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium mb-1 text-white">Placed By:</label>
+              <div className="bg-gray-800 text-white border border-gray-600 rounded px-3 py-2">
+                {deviceData.placedBy || 'Unknown'}
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1 text-white">Removed By:</label>
+              <div className="bg-gray-800 text-white border border-gray-600 rounded px-3 py-2">
+                {deviceData.removedBy || 'Unknown'}
+              </div>
             </div>
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1 text-white">In Date:</label>
+            <label className="block text-sm font-medium mb-1 text-white">Removal Type:</label>
             <div className="bg-gray-800 text-white border border-gray-600 rounded px-3 py-2">
-              {deviceData.inDate}
+              {deviceData.removalType === 'automatic' ? 'Automatic (Expired)' : 'Manual'}
+              {deviceData.isEarlyRemoval && ' - Early Removal'}
             </div>
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1 text-white">Out Date:</label>
-            <div className="bg-gray-800 text-white border border-gray-600 rounded px-3 py-2">
-              {deviceData.outDate}
+            <label className="block text-sm font-medium mb-1 text-white">Status:</label>
+            <div className="bg-green-700 text-white border border-green-600 rounded px-3 py-2">
+              ✅ Completed (100%)
             </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1 text-white">Time: {deviceData.time || 0} hrs</label>
-            <div className="bg-gray-800 text-white border border-gray-600 rounded px-3 py-2">
-              {deviceData.time} hours
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1 text-white">Progress:</label>
-            <Progress value={calculateProgress()} className="w-full" />
-            <p className="text-xs text-gray-400 mt-1">
-              {Math.round(calculateProgress())}% complete
-            </p>
           </div>
         </div>
       </DialogContent>
@@ -472,7 +592,10 @@ export default function StabilityDashboard() {
           deviceId: deviceData.id,
           inDate: deviceData.inDate,
           inTime: deviceData.inTime,
-          timeHours: deviceData.time,
+          hours: deviceData.hours || 0,
+          minutes: deviceData.minutes || 0,
+          seconds: deviceData.seconds || 0,
+          timeHours: deviceData.time, // Keep for backward compatibility
           updatedBy: personName
         });
       } else {
@@ -485,7 +608,10 @@ export default function StabilityDashboard() {
           deviceId: deviceData.id,
           inDate: deviceData.inDate,
           inTime: deviceData.inTime,
-          timeHours: deviceData.time,
+          hours: deviceData.hours || 0,
+          minutes: deviceData.minutes || 0,
+          seconds: deviceData.seconds || 0,
+          timeHours: deviceData.time, // Keep for backward compatibility
           createdBy: personName
         });
       }

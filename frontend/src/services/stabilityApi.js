@@ -63,10 +63,12 @@ export const stabilityApi = {
   // Update device by position
   async updateDevice(sectionKey, subsectionKey, row, col, deviceData) {
     try {
-      // Handle empty subsectionKey by using a placeholder
-      const encodedSubsection = subsectionKey ? encodeURIComponent(subsectionKey) : '_empty_';
+      // Build device path in format: section_key/subsection_key/row/col
+      const devicePath = `${sectionKey}/${subsectionKey || '_empty_'}/${row}/${col}`;
+      const encodedPath = encodeURIComponent(devicePath);
+      
       const response = await fetch(
-        `${API_BASE_URL}/stability/devices/${encodeURIComponent(sectionKey)}/${encodedSubsection}/${row}/${col}`,
+        `${API_BASE_URL}/stability/devices/${encodedPath}`,
         {
           method: 'PUT',
           headers: {
@@ -92,10 +94,12 @@ export const stabilityApi = {
   // Remove device (soft delete)
   async removeDevice(sectionKey, subsectionKey, row, col, removedBy) {
     try {
-      // Handle empty subsectionKey by using a placeholder
-      const encodedSubsection = subsectionKey ? encodeURIComponent(subsectionKey) : '_empty_';
+      // Build device path in format: section_key/subsection_key/row/col
+      const devicePath = `${sectionKey}/${subsectionKey || '_empty_'}/${row}/${col}`;
+      const encodedPath = encodeURIComponent(devicePath);
+      
       const response = await fetch(
-        `${API_BASE_URL}/stability/devices/${encodeURIComponent(sectionKey)}/${encodedSubsection}/${row}/${col}`,
+        `${API_BASE_URL}/stability/devices/${encodedPath}`,
         {
           method: 'DELETE',
           headers: {
@@ -121,10 +125,12 @@ export const stabilityApi = {
   // Get history for specific slot
   async getHistory(sectionKey, subsectionKey, row, col) {
     try {
-      // Handle empty subsectionKey by using a placeholder
-      const encodedSubsection = subsectionKey ? encodeURIComponent(subsectionKey) : '_empty_';
+      // Build device path in format: section_key/subsection_key/row/col
+      const devicePath = `${sectionKey}/${subsectionKey || '_empty_'}/${row}/${col}`;
+      const encodedPath = encodeURIComponent(devicePath);
+      
       const response = await fetch(
-        `${API_BASE_URL}/stability/history/${encodeURIComponent(sectionKey)}/${encodedSubsection}/${row}/${col}`
+        `${API_BASE_URL}/stability/history/${encodedPath}`
       );
       
       const result = await response.json();
@@ -179,6 +185,33 @@ export const stabilityApi = {
       };
     } catch (error) {
       console.error('Error auto-removing expired devices:', error);
+      throw error;
+    }
+  },
+
+  // Process expired devices and get details
+  async processExpiredDevices() {
+    try {
+      const response = await fetch(`${API_BASE_URL}/stability/process-expired`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+      
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to process expired devices');
+      }
+      
+      return {
+        message: result.message,
+        processedCount: result.processed_count,
+        processedDevices: result.processed_devices
+      };
+    } catch (error) {
+      console.error('Error processing expired devices:', error);
       throw error;
     }
   }

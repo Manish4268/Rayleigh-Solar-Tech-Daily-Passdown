@@ -273,7 +273,7 @@ class StabilityDeviceModel:
     def check_expired_devices(self) -> List[Dict]:
         """Check for devices that have exceeded their time_hours and should be auto-removed"""
         try:
-            current_time = datetime.utcnow()
+            current_time = datetime.now()  # Use local time
             expired_devices = list(self.collection.find({
                 "status": "active",
                 "out_datetime": {"$lte": current_time}
@@ -309,9 +309,10 @@ class StabilityDeviceModel:
             raise Exception(f"Failed to auto-remove expired devices: {str(e)}")
     
     def create(self, section_key: str, subsection_key: str, row: int, col: int,
-               device_id: str, in_date: str, in_time: str, time_hours: int, 
-               created_by: str) -> Dict:
-        """Create a new stability device entry"""
+               device_id: str, in_date: str, in_time: str, time_hours: float, 
+               created_by: str, time_hours_component: int = 0, 
+               time_minutes_component: int = 0, time_seconds_component: int = 0) -> Dict:
+        """Create a new stability device entry with precise time components"""
         try:
             # Check if slot is already occupied
             existing = self.get_by_position(section_key, subsection_key, row, col)
@@ -321,9 +322,12 @@ class StabilityDeviceModel:
             # Parse in_date and in_time to create full datetime
             in_datetime = self._parse_datetime(in_date, in_time)
             
-            # Calculate out_date and out_time based on in_datetime + time_hours
+            # Calculate out_date and out_time based on in_datetime + precise time components
             from datetime import timedelta
-            out_datetime = in_datetime + timedelta(hours=time_hours)
+            total_seconds = (time_hours_component * 3600 + 
+                           time_minutes_component * 60 + 
+                           time_seconds_component)
+            out_datetime = in_datetime + timedelta(seconds=total_seconds)
             
             entry = {
                 "section_key": section_key,
@@ -335,13 +339,17 @@ class StabilityDeviceModel:
                 "in_time": in_datetime.strftime('%H:%M'),
                 "in_datetime": in_datetime,
                 "out_date": out_datetime.strftime('%Y-%m-%d'),
-                "out_time": out_datetime.strftime('%H:%M'),
+                "out_time": out_datetime.strftime('%H:%M:%S'),  # Include seconds for precision
                 "out_datetime": out_datetime,
-                "time_hours": time_hours,
+                "time_hours": time_hours,  # Keep for backward compatibility
+                "duration_hours": time_hours_component,
+                "duration_minutes": time_minutes_component,
+                "duration_seconds": time_seconds_component,
+                "total_duration_seconds": total_seconds,
                 "status": "active",
                 "created_by": created_by,
-                "created_at": datetime.utcnow(),
-                "updated_at": datetime.utcnow()
+                "created_at": datetime.now(),
+                "updated_at": datetime.now()
             }
             
             result = self.collection.insert_one(entry)
@@ -436,7 +444,7 @@ class StabilityDeviceModel:
                 update_fields["updated_by"] = updated_by
             
             if update_fields:
-                update_fields["updated_at"] = datetime.utcnow()
+                update_fields["updated_at"] = datetime.now()
                 result = self.collection.update_one(
                     {
                         "section_key": section_key,
@@ -453,38 +461,66 @@ class StabilityDeviceModel:
             raise Exception(f"Failed to update device entry: {str(e)}")
     
     def soft_delete(self, section_key: str, subsection_key: str, row: int, col: int, removed_by: str) -> bool:
-        """Soft delete device (mark as removed and move to history)"""
+        """Remove device from active collection and move to history with enhanced tracking"""
         try:
             # First get the device to move to history
             device = self.get_by_position(section_key, subsection_key, row, col)
             if not device:
                 return False
             
-            # Move to history
-            history_model = StabilityHistoryModel(self.db_manager)
-            history_model.create_from_device(device, removed_by)
+            # Calculate actual time stayed and removal details
+            removal_time = datetime.now()  # Use local time instead of UTC
+            placement_time = device.get('in_datetime')
+            planned_out_time = device.get('out_datetime')
             
-            # Mark as removed
-            result = self.collection.update_one(
-                {
-                    "section_key": section_key,
-                    "subsection_key": subsection_key,
-                    "row": row,
-                    "col": col,
-                    "status": "active"
-                },
-                {
-                    "$set": {
-                        "status": "removed",
-                        "removed_by": removed_by,
-                        "removed_at": datetime.utcnow(),
-                        "updated_at": datetime.utcnow()
-                    }
-                }
-            )
-            return result.modified_count > 0
+            # Handle datetime parsing if stored as strings
+            if isinstance(placement_time, str):
+                placement_time = datetime.fromisoformat(placement_time.replace('Z', '+00:00'))
+            if isinstance(planned_out_time, str):
+                planned_out_time = datetime.fromisoformat(planned_out_time.replace('Z', '+00:00'))
+            
+            # Calculate actual hours stayed
+            actual_hours_stayed = 0
+            actual_days_stayed = 0
+            if placement_time:
+                time_diff = removal_time - placement_time
+                actual_hours_stayed = time_diff.total_seconds() / 3600
+                actual_days_stayed = actual_hours_stayed / 24
+            
+            # Determine if this is early removal or automatic removal
+            planned_hours = device.get('time_hours', 0)
+            planned_days = planned_hours / 24
+            is_early_removal = actual_hours_stayed < planned_hours
+            removal_type = 'manual' if removed_by != 'system' else 'automatic'
+            
+            # Create enhanced history entry
+            history_model = StabilityHistoryModel(self.db_manager)
+            enhanced_device_data = device.copy()
+            enhanced_device_data.update({
+                'actual_removal_time': removal_time,
+                'actual_hours_stayed': round(actual_hours_stayed, 2),
+                'actual_days_stayed': round(actual_days_stayed, 2),
+                'planned_hours': planned_hours,
+                'planned_days': round(planned_days, 2),
+                'is_early_removal': is_early_removal,
+                'removal_type': removal_type,
+                'hours_difference': round(actual_hours_stayed - planned_hours, 2)
+            })
+            
+            history_model.create_from_device(enhanced_device_data, removed_by)
+            
+            # Actually DELETE the device from the active collection (not just mark as removed)
+            result = self.collection.delete_one({
+                "section_key": section_key,
+                "subsection_key": subsection_key,
+                "row": row,
+                "col": col,
+                "status": "active"
+            })
+            
+            return result.deleted_count > 0
         except Exception as e:
-            raise Exception(f"Failed to soft delete device: {str(e)}")
+            raise Exception(f"Failed to remove device: {str(e)}")
 
 
 class StabilityHistoryModel:
@@ -512,7 +548,7 @@ class StabilityHistoryModel:
             print(f"Created collection: {self.collection_name}")
     
     def create_from_device(self, device_data: Dict, removed_by: str) -> Dict:
-        """Create history entry from device data"""
+        """Create history entry from device data with enhanced tracking"""
         try:
             # Generate a unique ID for the history entry
             import time
@@ -531,12 +567,20 @@ class StabilityHistoryModel:
                 "out_date": device_data.get("out_date"),
                 "out_time": device_data.get("out_time"),
                 "out_datetime": device_data.get("out_datetime"),
-                "time_hours": device_data["time_hours"],
+                "planned_time_hours": device_data["time_hours"],
+                "actual_removal_time": device_data.get("actual_removal_time"),
+                "actual_hours_stayed": device_data.get("actual_hours_stayed"),
+                "actual_days_stayed": device_data.get("actual_days_stayed"),
+                "planned_hours": device_data.get("planned_hours"),
+                "planned_days": device_data.get("planned_days"),
+                "is_early_removal": device_data.get("is_early_removal", False),
+                "removal_type": device_data.get("removal_type", "manual"),
+                "hours_difference": device_data.get("hours_difference", 0),
                 "status": "completed",
                 "created_by": device_data.get("created_by", "unknown"),
                 "removed_by": removed_by,
                 "original_created_at": device_data["created_at"],
-                "moved_to_history_at": datetime.utcnow()
+                "moved_to_history_at": datetime.now()
             }
             
             result = self.collection.insert_one(entry)
