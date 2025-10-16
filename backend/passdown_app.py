@@ -17,14 +17,14 @@ from typing import List, Dict, Optional
 import threading
 import time
 
-# Scheduler imports
+# Scheduler imports (legacy - keeping for potential future use)
 try:
     from apscheduler.schedulers.background import BackgroundScheduler
     from apscheduler.triggers.interval import IntervalTrigger
     SCHEDULER_AVAILABLE = True
 except ImportError:
     SCHEDULER_AVAILABLE = False
-    print("⚠️  APScheduler not available - automatic device removal will be disabled")
+    # Note: APScheduler not needed for current startup-only device checking
 
 # Azure Functions imports
 try:
@@ -711,11 +711,11 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         )
 
 # ============================================================================
-# AUTOMATIC DEVICE REMOVAL SCHEDULER
+# AUTOMATIC DEVICE REMOVAL (STARTUP CHECK)
 # ============================================================================
 
 def automatic_device_checker():
-    """Background function to automatically check and remove expired devices"""
+    """Check and remove expired devices (called once at startup)"""
     try:
         if not STABILITY_MODELS_AVAILABLE:
             return
@@ -768,39 +768,29 @@ def automatic_device_checker():
     except Exception as e:
         print(f"❌ Error in automatic device checker: {str(e)}")
 
-def setup_automatic_scheduler():
-    """Setup the background scheduler for automatic device removal"""
-    if not SCHEDULER_AVAILABLE:
-        print("⚠️  Scheduler not available - automatic device removal is disabled")
-        return None
-        
+def setup_startup_device_check():
+    """Run device expiry check once at startup only"""
     try:
-        scheduler = BackgroundScheduler()
+        # Run the automatic checker once after a short delay to ensure database is ready
+        def delayed_startup_check():
+            time.sleep(5)  # Wait 5 seconds after startup for database connection
+            print("🔍 Running startup device expiry check...")
+            removed_count = automatic_device_checker()
+            if removed_count and removed_count > 0:
+                print(f"✅ Startup check completed: Removed {removed_count} expired device(s)")
+            else:
+                print("✅ Startup check completed: No expired devices found")
         
-        # Schedule the automatic checker to run every minute
-        scheduler.add_job(
-            func=automatic_device_checker,
-            trigger=IntervalTrigger(minutes=1),  # Run every minute
-            id='automatic_device_checker',
-            name='Automatic Device Expiry Checker',
-            replace_existing=True
-        )
+        # Run the check in a separate thread to avoid blocking startup
+        startup_check_thread = threading.Thread(target=delayed_startup_check, daemon=True)
+        startup_check_thread.start()
         
-        # Also run immediately at startup (but in a separate thread to avoid blocking)
-        def delayed_initial_check():
-            time.sleep(10)  # Wait 10 seconds after startup
-            automatic_device_checker()
-        
-        initial_check_thread = threading.Thread(target=delayed_initial_check, daemon=True)
-        initial_check_thread.start()
-        
-        scheduler.start()
-        print("🤖 Automatic device removal scheduler started - checking every minute")
-        return scheduler
+        print("📋 Startup device expiry check scheduled")
+        return True
         
     except Exception as e:
-        print(f"❌ Failed to setup automatic scheduler: {str(e)}")
-        return None
+        print(f"❌ Failed to setup startup device check: {str(e)}")
+        return False
 
 # ============================================================================
 # FLASK LOCAL DEVELOPMENT SERVER
@@ -1202,22 +1192,48 @@ def create_flask_app():
                         actual_out_date = out_date[:10]
                     actual_out_time = item.get("out_time", "")
                 
+                # Fix for system removals: actual time should equal planned time
+                removal_type = item.get("removal_type", "manual")
+                removed_by = item.get("removed_by", "")
+                is_system_removal = removal_type == "automatic" or removed_by == "system"
+                
+                # Calculate planned time in hours from components
+                duration_hours = item.get("duration_hours", 0)
+                duration_minutes = item.get("duration_minutes", 0) 
+                duration_seconds = item.get("duration_seconds", 0)
+                total_duration_seconds = item.get("total_duration_seconds", 0)
+                
+                if total_duration_seconds > 0:
+                    planned_time_hours = total_duration_seconds / 3600
+                else:
+                    planned_time_hours = duration_hours + (duration_minutes / 60) + (duration_seconds / 3600)
+                
+                # For system removals, set actual time to match planned time
+                if is_system_removal:
+                    actual_hours_stayed = planned_time_hours
+                    actual_days_stayed = planned_time_hours / 24
+                    hours_difference = 0  # No difference for system removals
+                else:
+                    actual_hours_stayed = item.get("actual_hours_stayed", 0)
+                    actual_days_stayed = item.get("actual_days_stayed", 0)
+                    hours_difference = item.get("hours_difference", 0)
+                
                 formatted_history.append({
                     "deviceId": item["device_id"],
                     "inDate": in_date,
                     "inTime": item.get("in_time", ""),
                     "outDate": actual_out_date,  # Show actual removal date
                     "outTime": actual_out_time,  # Show actual removal time
-                    "plannedTimeHours": item.get("planned_time_hours", item.get("time_hours", 0)),
-                    "duration_hours": item.get("duration_hours", 0),
-                    "duration_minutes": item.get("duration_minutes", 0),
-                    "duration_seconds": item.get("duration_seconds", 0),
-                    "actualHoursStayed": item.get("actual_hours_stayed", 0),
-                    "actualDaysStayed": item.get("actual_days_stayed", 0),
-                    "plannedDays": item.get("planned_days", 0),
+                    "plannedTimeHours": item.get("planned_time_hours", item.get("time_hours", planned_time_hours)),
+                    "duration_hours": duration_hours,
+                    "duration_minutes": duration_minutes,
+                    "duration_seconds": duration_seconds,
+                    "actualHoursStayed": actual_hours_stayed,
+                    "actualDaysStayed": actual_days_stayed,
+                    "plannedDays": item.get("planned_days", planned_time_hours / 24),
                     "isEarlyRemoval": item.get("is_early_removal", False),
-                    "removalType": item.get("removal_type", "manual"),
-                    "hoursDifference": item.get("hours_difference", 0),
+                    "removalType": removal_type,
+                    "hoursDifference": hours_difference,
                     "wasDelayedRemoval": item.get("was_delayed_removal", False),
                     "placedBy": item.get("created_by", "unknown"),
                     "removedBy": item.get("removed_by", "unknown"),
@@ -1468,11 +1484,8 @@ def create_flask_app():
                 'error': str(e)
             }), 500
     
-    # Setup automatic device removal scheduler
-    scheduler = setup_automatic_scheduler()
-    if scheduler:
-        # Store scheduler in app for cleanup on shutdown
-        app.scheduler = scheduler
+    # Setup startup device expiry check (runs once at startup)
+    setup_startup_device_check()
     
     return app
 
@@ -1485,7 +1498,7 @@ if __name__ == '__main__':
     print("  ✅ Kudos Management")
     print("  ✅ Today's Top Issues")
     print("  ✅ Yesterday's Top Issues")
-    print("  🤖 Automatic Device Removal (Every Minute)")
+    print("  🤖 Automatic Device Removal (On Startup)")
     print("=" * 50)
     print("📍 Server URL: http://localhost:7071")
     print("📍 Health Check: http://localhost:7071/api/health")

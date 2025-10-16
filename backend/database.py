@@ -492,27 +492,51 @@ class StabilityDeviceModel:
                 actual_removal_time = system_removal_time
                 effective_end_time = system_removal_time  # Device actually ended when user removed it
                 removal_type = 'manual'
+                
+                # Calculate actual hours stayed based on when user removed it
+                actual_hours_stayed = 0
+                actual_days_stayed = 0
+                if placement_time and effective_end_time:
+                    time_diff = effective_end_time - placement_time
+                    actual_hours_stayed = time_diff.total_seconds() / 3600
+                    actual_days_stayed = actual_hours_stayed / 24
             else:
                 # System/automatic removal: device expired
                 # The actual removal time should be the planned time, regardless of when system ran
                 actual_removal_time = planned_out_time if planned_out_time else system_removal_time
                 effective_end_time = planned_out_time if planned_out_time else system_removal_time
                 removal_type = 'automatic'
-            
-            # Calculate actual hours stayed based on effective end time
-            actual_hours_stayed = 0
-            actual_days_stayed = 0
-            if placement_time and effective_end_time:
-                time_diff = effective_end_time - placement_time
-                actual_hours_stayed = time_diff.total_seconds() / 3600
+                
+                # For system removals, actual time stayed should equal planned time
+                # Calculate planned duration from stored components for accuracy
+                duration_hours = device.get('duration_hours', 0)
+                duration_minutes = device.get('duration_minutes', 0) 
+                duration_seconds = device.get('duration_seconds', 0)
+                total_planned_seconds = device.get('total_duration_seconds', 0)
+                
+                # Use total_duration_seconds if available, otherwise calculate from components
+                if total_planned_seconds > 0:
+                    actual_hours_stayed = total_planned_seconds / 3600
+                else:
+                    actual_hours_stayed = duration_hours + (duration_minutes / 60) + (duration_seconds / 3600)
+                
                 actual_days_stayed = actual_hours_stayed / 24
             
-            # Get planned duration
-            planned_hours = device.get('time_hours', 0)
+            # Get planned duration (using same logic for consistency)
+            duration_hours = device.get('duration_hours', device.get('time_hours', 0))
+            duration_minutes = device.get('duration_minutes', 0) 
+            duration_seconds = device.get('duration_seconds', 0)
+            total_planned_seconds = device.get('total_duration_seconds', 0)
+            
+            if total_planned_seconds > 0:
+                planned_hours = total_planned_seconds / 3600
+            else:
+                planned_hours = duration_hours + (duration_minutes / 60) + (duration_seconds / 3600)
+            
             planned_days = planned_hours / 24
             
-            # Determine if this was early removal
-            is_early_removal = actual_hours_stayed < planned_hours if planned_hours > 0 else False
+            # Determine if this was early removal (only relevant for manual removals)
+            is_early_removal = is_manual_removal and (actual_hours_stayed < planned_hours if planned_hours > 0 else False)
             
             # Create enhanced history entry
             history_model = StabilityHistoryModel(self.db_manager)
