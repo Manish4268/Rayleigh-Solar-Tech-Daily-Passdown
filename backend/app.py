@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 # Import modular API modules
 from charts_api import charts_api
 from data_management_api import data_api
+from upload_data_api import upload_api
 
 # Load environment variables
 load_dotenv()
@@ -138,6 +139,18 @@ def get_device_yield_data():
 def get_iv_repeatability_data():
     """Get IV repeatability data with daily averages for last 10 days."""
     return charts_api.get_iv_repeatability_data()
+
+@app.route('/api/storage/check-connection', methods=['GET'])
+def make_connection_check():
+    """Get IV repeatability data with daily averages for last 10 days."""
+    return charts_api.get_iv_repeatability_data()
+
+# ==================== UPLOAD DATA ENDPOINTS ====================
+
+@app.route('/api/upload', methods=['POST'])
+def upload_file():
+    """Upload file to Azure Blob Storage"""
+    return upload_api.upload_file()
 
 # ==================== START SERVER ====================
 

@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { BrowserRouter as Router, Routes, Route, Link } from "react-router-dom"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -12,6 +13,8 @@ import { todayAPI, yesterdayAPI, safetyAPI, kudosAPI, healthAPI, resetAPI } from
 import ParameterChart from "@/components/ParameterChart"
 import DeviceYieldChart from "@/components/DeviceYieldChart"
 import IVRepeatabilityChart from "@/components/IVRepeatabilityChart"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import UploadData from "@/components/UploadData"
 
 // Sample data
 const processData = [
@@ -417,7 +420,10 @@ export default function ProductionDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-background dark">
+    <Router>
+      <Routes>
+        <Route path="/" element={
+          <div className="min-h-screen bg-background dark">
       {/* Navbar */}
       <nav className="border-b border-border bg-card">
         <div className="flex h-16 items-center px-6">
@@ -439,10 +445,35 @@ export default function ProductionDashboard() {
             <Button variant="ghost" onClick={loadData} className="text-muted-foreground hover:text-foreground">
               Refresh Data
             </Button>
-            <Button variant="ghost" className="text-muted-foreground hover:text-foreground">
-              <Menu className="h-4 w-4 mr-2" />
-              Explore
-            </Button>
+            
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" className="text-muted-foreground hover:text-foreground">
+                  <Menu className="h-4 w-4 mr-2" />
+                  Explore
+                </Button>
+              </DropdownMenuTrigger>
+
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem asChild>
+                  <Link to="/stability" className="cursor-pointer">
+                    Stability
+                  </Link>
+                </DropdownMenuItem>
+
+                <DropdownMenuItem asChild>
+                  <Link to="/upload-data" className="cursor-pointer">
+                    Upload Data
+                  </Link>
+                </DropdownMenuItem>
+
+                <DropdownMenuItem asChild>
+                  <Link to="/analysis" className="cursor-pointer">
+                    Analysis
+                  </Link>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
         {error && (
@@ -829,5 +860,11 @@ export default function ProductionDashboard() {
         </div>
       </div>
     </div>
+        } />
+        <Route path="/upload-data" element={<UploadData />} />
+        <Route path="/stability" element={<div className="min-h-screen bg-background dark flex items-center justify-center"><p className="text-muted-foreground">Stability page - Coming Soon</p></div>} />
+        <Route path="/analysis" element={<div className="min-h-screen bg-background dark flex items-center justify-center"><p className="text-muted-foreground">Analysis page - Coming Soon</p></div>} />
+      </Routes>
+    </Router>
   )
 }
