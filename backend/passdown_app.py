@@ -1218,11 +1218,14 @@ def create_flask_app():
                     "isEarlyRemoval": item.get("is_early_removal", False),
                     "removalType": item.get("removal_type", "manual"),
                     "hoursDifference": item.get("hours_difference", 0),
+                    "wasDelayedRemoval": item.get("was_delayed_removal", False),
                     "placedBy": item.get("created_by", "unknown"),
                     "removedBy": item.get("removed_by", "unknown"),
                     "placedAt": item.get("original_created_at", "").isoformat() if hasattr(item.get("original_created_at", ""), 'isoformat') else item.get("original_created_at", ""),
                     "removedAt": item.get("moved_to_history_at", "").isoformat() if hasattr(item.get("moved_to_history_at", ""), 'isoformat') else item.get("moved_to_history_at", ""),
-                    "actualRemovalTime": actual_removal_time.strftime("%Y-%m-%d %H:%M") if hasattr(actual_removal_time, 'strftime') else str(actual_removal_time)
+                    "actualRemovalTime": actual_removal_time.strftime("%Y-%m-%d %H:%M:%S") if hasattr(actual_removal_time, 'strftime') else str(actual_removal_time),
+                    "systemRemovalTime": item.get("system_removal_time", "").isoformat() if hasattr(item.get("system_removal_time", ""), 'isoformat') else item.get("system_removal_time", ""),
+                    "plannedRemovalTime": item.get("planned_removal_time", "").isoformat() if hasattr(item.get("planned_removal_time", ""), 'isoformat') else item.get("planned_removal_time", "")
                 })
             
             # Close connections if needed

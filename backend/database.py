@@ -473,8 +473,8 @@ class StabilityDeviceModel:
             if not device:
                 return False
             
-            # Calculate actual time stayed and removal details
-            removal_time = datetime.now()  # Use local time instead of UTC
+            # Get timing information
+            system_removal_time = datetime.now()  # When the system is physically removing it
             placement_time = device.get('in_datetime')
             planned_out_time = device.get('out_datetime')
             
@@ -484,32 +484,51 @@ class StabilityDeviceModel:
             if isinstance(planned_out_time, str):
                 planned_out_time = datetime.fromisoformat(planned_out_time.replace('Z', '+00:00'))
             
-            # Calculate actual hours stayed
+            # Determine removal type and calculate timing accordingly
+            is_manual_removal = removed_by != 'system'
+            
+            if is_manual_removal:
+                # Manual removal: user removed it before planned time
+                actual_removal_time = system_removal_time
+                effective_end_time = system_removal_time  # Device actually ended when user removed it
+                removal_type = 'manual'
+            else:
+                # System/automatic removal: device expired
+                # The actual removal time should be the planned time, regardless of when system ran
+                actual_removal_time = planned_out_time if planned_out_time else system_removal_time
+                effective_end_time = planned_out_time if planned_out_time else system_removal_time
+                removal_type = 'automatic'
+            
+            # Calculate actual hours stayed based on effective end time
             actual_hours_stayed = 0
             actual_days_stayed = 0
-            if placement_time:
-                time_diff = removal_time - placement_time
+            if placement_time and effective_end_time:
+                time_diff = effective_end_time - placement_time
                 actual_hours_stayed = time_diff.total_seconds() / 3600
                 actual_days_stayed = actual_hours_stayed / 24
             
-            # Determine if this is early removal or automatic removal
+            # Get planned duration
             planned_hours = device.get('time_hours', 0)
             planned_days = planned_hours / 24
-            is_early_removal = actual_hours_stayed < planned_hours
-            removal_type = 'manual' if removed_by != 'system' else 'automatic'
+            
+            # Determine if this was early removal
+            is_early_removal = actual_hours_stayed < planned_hours if planned_hours > 0 else False
             
             # Create enhanced history entry
             history_model = StabilityHistoryModel(self.db_manager)
             enhanced_device_data = device.copy()
             enhanced_device_data.update({
-                'actual_removal_time': removal_time,
+                'actual_removal_time': actual_removal_time,  # The correct time it should be recorded as removed
+                'system_removal_time': system_removal_time,  # When the system physically removed it
+                'planned_removal_time': planned_out_time,    # When it was supposed to be removed
                 'actual_hours_stayed': round(actual_hours_stayed, 2),
                 'actual_days_stayed': round(actual_days_stayed, 2),
                 'planned_hours': planned_hours,
                 'planned_days': round(planned_days, 2),
                 'is_early_removal': is_early_removal,
                 'removal_type': removal_type,
-                'hours_difference': round(actual_hours_stayed - planned_hours, 2)
+                'hours_difference': round(actual_hours_stayed - planned_hours, 2),
+                'was_delayed_removal': not is_manual_removal and (system_removal_time > planned_out_time if planned_out_time else False)
             })
             
             history_model.create_from_device(enhanced_device_data, removed_by)
@@ -578,6 +597,8 @@ class StabilityHistoryModel:
                 "duration_seconds": device_data.get("duration_seconds", 0),
                 "total_duration_seconds": device_data.get("total_duration_seconds", 0),
                 "actual_removal_time": device_data.get("actual_removal_time"),
+                "system_removal_time": device_data.get("system_removal_time"),
+                "planned_removal_time": device_data.get("planned_removal_time"),
                 "actual_hours_stayed": device_data.get("actual_hours_stayed"),
                 "actual_days_stayed": device_data.get("actual_days_stayed"),
                 "planned_hours": device_data.get("planned_hours"),
@@ -585,6 +606,7 @@ class StabilityHistoryModel:
                 "is_early_removal": device_data.get("is_early_removal", False),
                 "removal_type": device_data.get("removal_type", "manual"),
                 "hours_difference": device_data.get("hours_difference", 0),
+                "was_delayed_removal": device_data.get("was_delayed_removal", False),
                 "status": "completed",
                 "created_by": device_data.get("created_by", "unknown"),
                 "removed_by": removed_by,
