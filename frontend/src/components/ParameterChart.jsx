@@ -6,9 +6,11 @@ import { chartAPI } from '../lib/api';
 import BoxPlot from './BoxPlot';
 
 const ParameterChart = () => {
-  const [selectedParameter, setSelectedParameter] = useState('PCE');
+  const [selectedParameter, setSelectedParameter] = useState('PCE'); // Back to single parameter selection
   const [chartData, setChartData] = useState([]);
-  const [parameters, setParameters] = useState([]);
+  const [parameters, setParameters] = useState([
+    "PCE", "FF", "Max Power", "HI", "I_sc", "V_oc", "R_series", "R_shunt"
+  ]); // Initialize with all 8 parameters
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -24,17 +26,22 @@ const ParameterChart = () => {
     'R_shunt': { label: 'R_shunt', unit: 'Ω·cm²', color: '#84cc16' }
   };
 
-  // Load available parameters on component mount
+  // Load available parameters on component mount (and also load from API)
   useEffect(() => {
     const loadParameters = async () => {
       try {
         const response = await chartAPI.getParameters();
-        if (response.success) {
+        if (response.success && response.parameters) {
           setParameters(response.parameters);
+          console.log('✅ Loaded parameters from API:', response.parameters);
+        } else {
+          console.log('⚠️ Using fallback parameters');
+          // Keep the hardcoded fallback parameters
         }
       } catch (error) {
         console.error('Error loading parameters:', error);
-        setError('Failed to load parameters');
+        console.log('⚠️ Using fallback parameters due to error');
+        // Keep the hardcoded fallback parameters
       }
     };
     loadParameters();
@@ -45,16 +52,21 @@ const ParameterChart = () => {
     const loadChartData = async () => {
       if (!selectedParameter) return;
       
+      console.log('📊 Loading chart data for parameter:', selectedParameter);
       setLoading(true);
       setError(null);
       
       try {
         const response = await chartAPI.getData(selectedParameter);
+        console.log('📊 Chart data response:', response);
+        
         if (response.success) {
           // Data is already in the correct format for box plots
           setChartData(response.data);
+          console.log('✅ Chart data loaded successfully:', response.data);
         } else {
           setError(response.error || 'Failed to load chart data');
+          console.log('❌ Chart data failed:', response.error);
         }
       } catch (error) {
         console.error('Error loading chart data:', error);
@@ -62,12 +74,7 @@ const ParameterChart = () => {
         // Fallback to mock data to keep UI working
         setChartData([
           { 
-            batch: 'B58', 
-            min: 0, q1: 0, median: 0, mean: 0, q3: 0, max: 0, 
-            std: 0, count: 0 
-          },
-          { 
-            batch: 'B59', 
+            batch: 'No Data', 
             min: 0, q1: 0, median: 0, mean: 0, q3: 0, max: 0, 
             std: 0, count: 0 
           }
@@ -111,25 +118,38 @@ const ParameterChart = () => {
         <CardTitle className="text-xl font-semibold text-balance">
           {selectedParameter ? `${parameterInfo[selectedParameter]?.label || selectedParameter} Analysis` : 'Parameter Analysis'}
         </CardTitle>
+        <div className="text-sm text-gray-500 mb-4">
+          Box plot distribution analysis for selected parameter
+        </div>
         
-        {/* Parameter Selection Buttons with Horizontal Scroll */}
+        {/* Parameter Selection Buttons with Horizontal Scroll - matching DeviceYieldChart style */}
         <div className="w-full overflow-x-auto scrollbar-thin scrollbar-track-gray-800 scrollbar-thumb-gray-600 hover:scrollbar-thumb-gray-500">
           <div className="flex space-x-2 min-w-max pb-2">
-            {parameters.map((param) => (
+            {parameters.length > 0 ? parameters.map((param) => (
               <Button
                 key={param}
-                onClick={() => setSelectedParameter(param)}
+                onClick={() => {
+                  console.log('🔄 Switching to parameter:', param);
+                  setSelectedParameter(param);
+                }}
                 variant={selectedParameter === param ? 'default' : 'outline'}
                 size="sm"
                 className={`whitespace-nowrap transition-all duration-200 ${
-                  selectedParameter === param 
-                    ? 'bg-blue-600 hover:bg-blue-700 text-white border-blue-600 shadow-md' 
-                    : 'bg-gray-800 border-gray-600 text-gray-300 hover:bg-gray-700 hover:text-white hover:border-gray-500'
+                  selectedParameter === param
+                    ? 'shadow-lg transform scale-105'
+                    : 'hover:scale-105'
                 }`}
+                style={{
+                  backgroundColor: selectedParameter === param ? parameterInfo[param]?.color : 'transparent',
+                  borderColor: parameterInfo[param]?.color,
+                  color: selectedParameter === param ? 'white' : parameterInfo[param]?.color
+                }}
               >
                 {parameterInfo[param]?.label || param}
               </Button>
-            ))}
+            )) : (
+              <div className="text-gray-500 text-sm">Loading parameters...</div>
+            )}
           </div>
         </div>
       </CardHeader>
@@ -159,7 +179,8 @@ const ParameterChart = () => {
         
         {/* Parameter Info */}
         <div className="mt-4 text-sm text-gray-500 text-center">
-          Box plot showing distribution: min, Q1, median, mean, Q3, max with standard deviation
+          Box plot showing distribution: min, Q1, median, mean, Q3, max with standard deviation | 
+          Selected: {selectedParameter} | Hover over each box for detailed statistics
         </div>
       </CardContent>
     </Card>

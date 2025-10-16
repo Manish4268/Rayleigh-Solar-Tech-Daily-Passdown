@@ -10,20 +10,28 @@ const IVRepeatabilityChart = () => {
   const [error, setError] = useState(null);
   const [selectedParameters, setSelectedParameters] = useState(['PCE']); // Default to show PCE only
 
-  // Color mapping for parameters
+  // Color mapping for parameters (matching ParameterChart colors)
   const parameterColors = {
     'PCE': '#3b82f6',        // Blue
     'FF': '#10b981',         // Green  
+    'Max Power': '#f59e0b',  // Orange
+    'HI': '#ef4444',         // Red
+    'I_sc': '#8b5cf6',       // Purple
     'V_oc': '#06b6d4',       // Cyan
-    'I_sc': '#8b5cf6'        // Purple
+    'R_series': '#f97316',   // Orange (darker)
+    'R_shunt': '#84cc16'     // Lime
   };
 
-  // Parameter info with units
+  // Parameter info with units (matching ParameterChart)
   const parameterInfo = {
     'PCE': { label: 'PCE', unit: '%' },
     'FF': { label: 'FF', unit: '%' },
+    'Max Power': { label: 'Max Power', unit: 'mW/cm²' },
+    'HI': { label: 'HI', unit: '%' },
+    'I_sc': { label: 'I_sc', unit: 'mA/cm²' },
     'V_oc': { label: 'V_oc', unit: 'V' },
-    'I_sc': { label: 'I_sc', unit: 'mA/cm²' }
+    'R_series': { label: 'R_series', unit: 'Ω·cm²' },
+    'R_shunt': { label: 'R_shunt', unit: 'Ω·cm²' }
   };
 
   useEffect(() => {
@@ -55,15 +63,16 @@ const IVRepeatabilityChart = () => {
         // Remove parameter (but keep at least one selected)
         return prev.length > 1 ? prev.filter(p => p !== param) : prev;
       } else {
-        // Add parameter
-        return [...prev, param];
+        // Add parameter (limit to 6 parameters for better visibility)
+        return prev.length < 6 ? [...prev, param] : prev;
       }
     });
   };
 
   const selectAllParameters = () => {
     if (data && data.parameters) {
-      setSelectedParameters(data.parameters);
+      // Select first 6 parameters to avoid overcrowding
+      setSelectedParameters(data.parameters.slice(0, 6));
     }
   };
 
@@ -130,7 +139,7 @@ const IVRepeatabilityChart = () => {
       <CardHeader>
         <CardTitle className="text-xl font-semibold text-balance">IV Repeatability Analysis</CardTitle>
         <div className="text-sm text-gray-500 mb-4">
-          Daily averages for IV parameters over the last {data?.repeatability_data?.length || 0} days (most recent dates)
+          Daily averages for all parameters over the last {data?.repeatability_data?.length || 0} days (select up to 6 parameters)
         </div>
         
         {/* Parameter Selection Controls */}
@@ -143,7 +152,7 @@ const IVRepeatabilityChart = () => {
               size="sm"
               className="text-xs"
             >
-              Select All
+              Select First 6
             </Button>
             <Button
               onClick={clearAllParameters}
@@ -154,7 +163,7 @@ const IVRepeatabilityChart = () => {
               Clear All
             </Button>
             <span className="text-xs text-gray-500 self-center ml-2">
-              Selected: {selectedParameters.length} parameter{selectedParameters.length !== 1 ? 's' : ''}
+              Selected: {selectedParameters.length}/6 parameter{selectedParameters.length !== 1 ? 's' : ''}
             </span>
           </div>
           
@@ -177,6 +186,7 @@ const IVRepeatabilityChart = () => {
                     borderColor: parameterColors[param],
                     color: selectedParameters.includes(param) ? 'white' : parameterColors[param]
                   }}
+                  disabled={!selectedParameters.includes(param) && selectedParameters.length >= 6}
                 >
                   {parameterInfo[param]?.label || param}
                 </Button>
@@ -249,8 +259,8 @@ const IVRepeatabilityChart = () => {
         </ResponsiveContainer>
         
         <div className="mt-4 text-xs text-gray-500 text-center">
-          Daily averages show IV parameter trends over the most recent {data?.repeatability_data?.length || 0} days | 
-          Selected: {selectedParameters.join(', ')} | Higher values generally indicate better performance
+          Daily averages show parameter trends over the most recent {data?.repeatability_data?.length || 0} days | 
+          Selected: {selectedParameters.join(', ')} | All parameters available for comprehensive analysis
         </div>
       </CardContent>
     </Card>

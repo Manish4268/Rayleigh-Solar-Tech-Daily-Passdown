@@ -17,17 +17,21 @@ const DeviceYieldChart = () => {
     'Max Power': '#f59e0b',  // Orange
     'HI': '#ef4444',         // Red
     'I_sc': '#8b5cf6',       // Purple
-    'V_oc': '#06b6d4'        // Cyan
+    'V_oc': '#06b6d4',       // Cyan
+    'R_series': '#f97316',   // Orange (darker)
+    'R_shunt': '#84cc16'     // Lime
   };
 
-  // Parameter info with units
+  // Parameter info with units (matching ParameterChart)
   const parameterInfo = {
     'PCE': { label: 'PCE', unit: '%' },
     'FF': { label: 'FF', unit: '%' },
     'Max Power': { label: 'Max Power', unit: 'mW/cm²' },
     'HI': { label: 'HI', unit: '%' },
     'I_sc': { label: 'I_sc', unit: 'mA/cm²' },
-    'V_oc': { label: 'V_oc', unit: 'V' }
+    'V_oc': { label: 'V_oc', unit: 'V' },
+    'R_series': { label: 'R_series', unit: 'Ω·cm²' },
+    'R_shunt': { label: 'R_shunt', unit: 'Ω·cm²' }
   };
 
   useEffect(() => {
