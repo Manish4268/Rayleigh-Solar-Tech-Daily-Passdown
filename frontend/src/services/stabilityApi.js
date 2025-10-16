@@ -163,32 +163,6 @@ export const stabilityApi = {
     }
   },
 
-  // Auto-remove expired devices
-  async autoRemoveExpiredDevices() {
-    try {
-      const response = await fetch(`${API_BASE_URL}/stability/auto-remove`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        }
-      });
-      
-      const result = await response.json();
-      
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to auto-remove expired devices');
-      }
-      
-      return {
-        message: result.message,
-        removedCount: result.removed_count
-      };
-    } catch (error) {
-      console.error('Error auto-removing expired devices:', error);
-      throw error;
-    }
-  },
-
   // Process expired devices and get details
   async processExpiredDevices() {
     try {

@@ -708,19 +708,6 @@ export default function StabilityDashboard() {
     setHistoryDevicePopupOpen(true);
   };
 
-  const handleAutoRemoveExpired = async () => {
-    try {
-      const result = await stabilityApi.autoRemoveExpiredDevices();
-      alert(`${result.message}. Refreshing dashboard...`);
-      
-      // Refresh the data after auto-removal
-      await loadData();
-    } catch (err) {
-      console.error('Failed to auto-remove expired devices:', err);
-      alert(`Failed to auto-remove expired devices: ${err.message}`);
-    }
-  };
-
   const checkExpiredDevices = async () => {
     try {
       const expiredDevices = await stabilityApi.checkExpiredDevices();
@@ -764,17 +751,9 @@ export default function StabilityDashboard() {
     <div className="min-h-screen bg-background">
       {/* Header */}
       <div className="border-b border-border p-4">
-        <div className="flex justify-between items-center">
-          <div>
-            <h1 className="text-2xl font-bold">Stability Dashboard</h1>
-            <p className="text-muted-foreground">Real workspace testing environment monitoring</p>
-          </div>
-          <Button 
-            onClick={handleAutoRemoveExpired}
-            className="bg-red-600 hover:bg-red-700 text-white"
-          >
-            Auto-Remove Expired Devices
-          </Button>
+        <div>
+          <h1 className="text-2xl font-bold">Stability Dashboard</h1>
+          <p className="text-muted-foreground">Real workspace testing environment monitoring</p>
         </div>
         {error && (
           <div className="mt-2 p-2 bg-yellow-100 border border-yellow-400 text-yellow-700 rounded">
