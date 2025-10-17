@@ -86,6 +86,7 @@ class DataManagementAPI:
                 'issue': data.get('issue'),
                 'person': data.get('person'),
                 'action': data.get('action'),
+                'done': data.get('done', 'No'),  # Default to "No" for new issues
                 'date': datetime.now().strftime('%m/%d'),
                 'timestamp': datetime.now().isoformat()
             }
@@ -98,6 +99,40 @@ class DataManagementAPI:
             logging.error(f"Error creating safety issue: {e}")
             return jsonify({"success": False, "error": str(e)}), 500
     
+    def update_safety_issue(self, issue_id, data):
+        """Update a safety issue"""
+        try:
+            if self.db is None:
+                return jsonify({"success": False, "error": "Database error"}), 500
+            
+            logging.info(f"🔄 Updating safety issue {issue_id} with data: {data}")
+            
+            update_data = {}
+            if 'done' in data:
+                update_data['done'] = data['done']
+                logging.info(f"📝 Setting done status to: {data['done']}")
+            if 'issue' in data:
+                update_data['issue'] = data['issue']
+            if 'person' in data:
+                update_data['person'] = data['person']
+            if 'action' in data:
+                update_data['action'] = data['action']
+            
+            result = self.db[self.COLLECTION_SAFETY].update_one(
+                {'_id': ObjectId(issue_id)},
+                {'$set': update_data}
+            )
+            
+            logging.info(f"✅ Update result: matched={result.matched_count}, modified={result.modified_count}")
+            
+            if result.matched_count == 0:
+                return jsonify({"success": False, "error": "Issue not found"}), 404
+            
+            return jsonify({"success": True, "message": "Issue updated"}), 200
+        except Exception as e:
+            logging.error(f"Error updating safety issue: {e}")
+            return jsonify({"success": False, "error": str(e)}), 500
+
     def delete_safety_issue(self, issue_id):
         """Delete a safety issue"""
         try:

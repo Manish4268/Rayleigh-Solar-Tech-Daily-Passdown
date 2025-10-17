@@ -136,6 +136,7 @@ export default function ProductionDashboard() {
   const [isAddingTodayIssue, setIsAddingTodayIssue] = useState(false)
 
   const [showOnlyIncomplete, setShowOnlyIncomplete] = useState(false)
+  const [showOnlyIncompleteSafety, setShowOnlyIncompleteSafety] = useState(false)
 
   // Load data from API
   useEffect(() => {
@@ -359,6 +360,22 @@ export default function ProductionDashboard() {
     }
   }
 
+  const handleToggleSafetyStatus = async (id, currentStatus) => {
+    try {
+      console.log('🔄 Toggling safety status:', { id, currentStatus });
+      const newStatus = currentStatus === 'Yes' ? 'No' : 'Yes'
+      console.log('📝 New status will be:', newStatus);
+      
+      const response = await safetyAPI.update(id, { done: newStatus })
+      console.log('✅ Update response:', response);
+      
+      await loadSafetyIssues() // Reload only safety issues table
+    } catch (err) {
+      console.error('❌ Toggle error:', err);
+      setError('Failed to update safety issue status: ' + err.message)
+    }
+  }
+
   const handleDeleteSafetyIssue = async (id) => {
     try {
       await safetyAPI.delete(id)
@@ -404,8 +421,19 @@ export default function ProductionDashboard() {
   }
 
   const getFilteredSafetyIssues = () => {
-    // Show last 10 safety issues for consistent scrolling experience
-    return safetyIssues.slice(-10)
+    // Show incomplete safety issues first, then completed ones (max 10 total)
+    const incomplete = safetyIssues.filter((issue) => (issue.done || "No") === "No")
+    const completed = safetyIssues.filter((issue) => (issue.done || "No") === "Yes")
+    
+    if (showOnlyIncompleteSafety) {
+      return incomplete.slice(-10) // Show last 10 incomplete only
+    }
+    
+    // Show incomplete first, then completed (total max 10)
+    const incompleteToShow = incomplete.slice(-10)
+    const completedToShow = completed.slice(-(10 - incompleteToShow.length))
+    
+    return [...incompleteToShow, ...completedToShow]
   }
 
   if (loading) {
@@ -526,12 +554,20 @@ export default function ProductionDashboard() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Near Misses / Safety */}
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-balance">Near Misses / Safety</CardTitle>
-              <Button size="sm" onClick={() => setIsAddingIssue(true)} className="bg-primary hover:bg-primary/90">
-                <Plus className="h-4 w-4 mr-2" />
-                Add Issue
-              </Button>
+            <CardHeader>
+              <div className="flex flex-row items-center justify-between">
+                <CardTitle className="text-balance">Near Misses / Safety</CardTitle>
+                <Button size="sm" onClick={() => setIsAddingIssue(true)} className="bg-primary hover:bg-primary/90">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Issue
+                </Button>
+              </div>
+              <div className="flex items-center space-x-2 mt-2">
+                <Checkbox id="incomplete-safety-filter" checked={showOnlyIncompleteSafety} onCheckedChange={setShowOnlyIncompleteSafety} />
+                <label htmlFor="incomplete-safety-filter" className="text-xs text-muted-foreground">
+                  Show only incomplete issues
+                </label>
+              </div>
             </CardHeader>
             <CardContent>
                                 <div className="overflow-auto max-h-96 border border-gray-200 rounded">
@@ -539,27 +575,58 @@ export default function ProductionDashboard() {
                     <thead className="bg-gray-800 sticky top-0 z-10">
                       <tr className="border-b border-border">
                         <th className="text-left py-3 px-3 font-medium text-white text-sm bg-gray-800">Issue #</th>
-                        <th className="text-left py-3 px-3 font-medium text-white text-sm bg-gray-800">Description</th>
+                        <th className="text-left py-3 px-3 font-medium text-white text-sm bg-gray-800">Issue Description</th>
+                        <th className="text-left py-3 px-3 font-medium text-white text-sm bg-gray-800">Who Pointed Out</th>
+                        <th className="text-left py-3 px-3 font-medium text-white text-sm bg-gray-800">Action Required</th>
                         <th className="text-left py-3 px-3 font-medium text-white text-sm bg-gray-800">Done?</th>
-                        <th className="text-left py-3 px-3 font-medium text-white text-sm bg-gray-800">Who</th>
                         <th className="text-left py-3 px-2 font-medium text-white text-sm bg-gray-800">Date</th>
                         <th className="text-left py-3 px-2 font-medium text-white text-sm bg-gray-800">Actions</th>
                       </tr>
                     </thead>
                   <tbody>
                     {getFilteredSafetyIssues().map((row, index) => (
-                      <tr key={index} className={index % 2 === 0 ? "bg-muted/50" : ""}>
+                      <tr 
+                        key={row._id || index} 
+                        className={`${index % 2 === 0 ? "bg-muted/50" : ""} ${(row.done || "No") === "No" ? "bg-destructive/10" : ""}`}
+                      >
+                        <td className="py-2 px-3 text-sm font-medium">#{row.id || index + 1}</td>
                         <td className="py-2 px-3 text-sm">{row.issue}</td>
                         <td className="py-2 px-3 text-sm">{row.person}</td>
                         <td className="py-2 px-3 text-sm">{row.action}</td>
+                        <td className="py-2 px-3 text-sm">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleToggleSafetyStatus(row._id, row.done || "No")}
+                            className="p-0 h-auto"
+                          >
+                            <Badge
+                              variant={(row.done || "No") === "Yes" ? "secondary" : "destructive"}
+                              className={`cursor-pointer ${(row.done || "No") === "Yes" ? "bg-primary/10 text-primary" : ""}`}
+                            >
+                              {row.done || "No"}
+                            </Badge>
+                          </Button>
+                        </td>
                         <td className="py-2 px-2 text-sm text-muted-foreground">{row.date}</td>
+                        <td className="py-2 px-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDeleteSafetyIssue(row._id)}
+                            className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </td>
                       </tr>
                     ))}
                     {isAddingIssue && (
                       <tr className="bg-accent/50">
+                        <td className="py-2 px-3 text-sm text-muted-foreground">Auto</td>
                         <td className="py-2 px-3">
                           <Input
-                            placeholder="Issue description"
+                            placeholder="What was the issue/near miss?"
                             value={newSafetyIssue.issue}
                             onChange={(e) => setNewSafetyIssue({ ...newSafetyIssue, issue: e.target.value })}
                             className="h-8"
@@ -567,26 +634,42 @@ export default function ProductionDashboard() {
                         </td>
                         <td className="py-2 px-3">
                           <Input
-                            placeholder="Person name"
+                            placeholder="Who pointed it out?"
                             value={newSafetyIssue.person}
                             onChange={(e) => setNewSafetyIssue({ ...newSafetyIssue, person: e.target.value })}
                             className="h-8"
                           />
                         </td>
                         <td className="py-2 px-3">
-                          <div className="flex gap-2">
-                            <Input
-                              placeholder="Action taken"
-                              value={newSafetyIssue.action}
-                              onChange={(e) => setNewSafetyIssue({ ...newSafetyIssue, action: e.target.value })}
-                              className="h-8"
-                            />
-                            <Button size="sm" onClick={handleAddSafetyIssue} className="h-8">
+                          <Input
+                            placeholder="What action is required?"
+                            value={newSafetyIssue.action}
+                            onChange={(e) => setNewSafetyIssue({ ...newSafetyIssue, action: e.target.value })}
+                            className="h-8"
+                          />
+                        </td>
+                        <td className="py-2 px-3">
+                          <Badge variant="destructive" className="cursor-default">No</Badge>
+                        </td>
+                        <td className="py-2 px-2 text-sm text-muted-foreground">Today</td>
+                        <td className="py-2 px-2">
+                          <div className="flex gap-1">
+                            <Button size="sm" onClick={handleAddSafetyIssue} className="h-8 px-3">
                               Save
+                            </Button>
+                            <Button 
+                              size="sm" 
+                              variant="outline" 
+                              onClick={() => {
+                                setIsAddingIssue(false);
+                                setNewSafetyIssue({ issue: "", person: "", action: "" });
+                              }} 
+                              className="h-8 px-2"
+                            >
+                              Cancel
                             </Button>
                           </div>
                         </td>
-                        <td className="py-2 px-2 text-sm text-muted-foreground">12/23</td>
                       </tr>
                     )}
                   </tbody>
@@ -613,15 +696,26 @@ export default function ProductionDashboard() {
                       <th className="text-left py-3 px-3 font-medium text-white text-sm bg-gray-800">Action</th>
                       <th className="text-left py-3 px-3 font-medium text-white text-sm bg-gray-800">By Whom</th>
                       <th className="text-left py-3 px-2 font-medium text-white text-sm bg-gray-800">Date</th>
+                      <th className="text-left py-3 px-2 font-medium text-white text-sm bg-gray-800">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {getFilteredKudosData().map((row, index) => (
-                      <tr key={index} className={index % 2 === 0 ? "bg-muted/50" : ""}>
+                      <tr key={row._id || index} className={index % 2 === 0 ? "bg-muted/50" : ""}>
                         <td className="py-2 px-3 text-sm font-medium">{row.name}</td>
                         <td className="py-2 px-3 text-sm">{row.action}</td>
                         <td className="py-2 px-3 text-sm">{row.by_whom || ""}</td>
                         <td className="py-2 px-2 text-sm text-muted-foreground">{row.date}</td>
+                        <td className="py-2 px-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDeleteKudos(row._id)}
+                            className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </td>
                       </tr>
                     ))}
                     {isAddingKudos && (
@@ -650,10 +744,24 @@ export default function ProductionDashboard() {
                             className="h-8"
                           />
                         </td>
+                        <td className="py-2 px-2 text-sm text-muted-foreground">Today</td>
                         <td className="py-2 px-2">
-                          <Button size="sm" onClick={handleAddKudos} className="h-8">
-                            Save
-                          </Button>
+                          <div className="flex gap-1">
+                            <Button size="sm" onClick={handleAddKudos} className="h-8 px-3">
+                              Save
+                            </Button>
+                            <Button 
+                              size="sm" 
+                              variant="outline" 
+                              onClick={() => {
+                                setIsAddingKudos(false);
+                                setNewKudos({ name: "", action: "", by_whom: "" });
+                              }} 
+                              className="h-8 px-2"
+                            >
+                              Cancel
+                            </Button>
+                          </div>
                         </td>
                       </tr>
                     )}

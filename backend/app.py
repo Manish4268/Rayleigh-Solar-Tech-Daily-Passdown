@@ -57,6 +57,11 @@ def create_safety_issue():
     from flask import request
     return data_api.create_safety_issue(request.get_json())
 
+@app.route('/api/safety/<issue_id>', methods=['PUT'])
+def update_safety_issue(issue_id):
+    from flask import request
+    return data_api.update_safety_issue(issue_id, request.get_json())
+
 @app.route('/api/safety/<issue_id>', methods=['DELETE'])
 def delete_safety_issue(issue_id):
     return data_api.delete_safety_issue(issue_id)
