@@ -237,3 +237,104 @@ export const resetAPI = {
     return handleResponse(response);
   },
 };
+
+// Analysis API functions
+export const analysisAPI = {
+  // Process Excel/CSV file with analysis options
+  processFile: async (file, options) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    // Add processing options to form data
+    Object.entries(options).forEach(([key, value]) => {
+      formData.append(key, String(value));
+    });
+
+    const response = await fetch(`${API_BASE_URL}/analysis/process`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    return handleResponse(response);
+  },
+
+  // Download analysis results - Quick Data
+  downloadQuickData: async () => {
+    const response = await fetch(`${API_BASE_URL}/analysis/download`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ fileType: 'quick' }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Download failed' }));
+      throw new Error(error.message || 'Download failed');
+    }
+
+    // Handle file download
+    const blob = await response.blob();
+    const downloadUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    
+    // Get filename from response headers or use default
+    const contentDisposition = response.headers.get('Content-Disposition');
+    let filename = 'Quick_Data.xlsx';
+    if (contentDisposition) {
+      const filenameMatch = contentDisposition.match(/filename="(.+)"/);
+      if (filenameMatch) {
+        filename = filenameMatch[1];
+      }
+    }
+    
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(downloadUrl);
+    
+    return { success: true, filename };
+  },
+
+  // Download analysis results - Entire Data
+  downloadEntireData: async () => {
+    const response = await fetch(`${API_BASE_URL}/analysis/download`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ fileType: 'entire' }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Download failed' }));
+      throw new Error(error.message || 'Download failed');
+    }
+
+    // Handle file download
+    const blob = await response.blob();
+    const downloadUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    
+    // Get filename from response headers or use default
+    const contentDisposition = response.headers.get('Content-Disposition');
+    let filename = 'Entire_Data.xlsx';
+    if (contentDisposition) {
+      const filenameMatch = contentDisposition.match(/filename="(.+)"/);
+      if (filenameMatch) {
+        filename = filenameMatch[1];
+      }
+    }
+    
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(downloadUrl);
+    
+    return { success: true, filename };
+  },
+};

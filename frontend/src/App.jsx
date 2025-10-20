@@ -15,6 +15,7 @@ import DeviceYieldChart from "@/components/DeviceYieldChart"
 import IVRepeatabilityChart from "@/components/IVRepeatabilityChart"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import UploadData from "@/components/UploadData"
+import Analysis from "@/components/Analysis"
 
 // Sample data
 const processData = [
@@ -971,7 +972,7 @@ export default function ProductionDashboard() {
         } />
         <Route path="/upload-data" element={<UploadData />} />
         <Route path="/stability" element={<div className="min-h-screen bg-background dark flex items-center justify-center"><p className="text-muted-foreground">Stability page - Coming Soon</p></div>} />
-        <Route path="/analysis" element={<div className="min-h-screen bg-background dark flex items-center justify-center"><p className="text-muted-foreground">Analysis page - Coming Soon</p></div>} />
+        <Route path="/analysis" element={<Analysis />} />
       </Routes>
     </Router>
   )

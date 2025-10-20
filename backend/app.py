@@ -7,6 +7,15 @@ This is the main entry point that imports modular APIs:
 - data_management_api: Handles all CRUD operations for safety, kudos, and issues
 """
 
+import os
+import sys
+
+# Ensure we're working from the correct directory for imports
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
+os.chdir(current_dir)
+
 from flask import Flask
 from flask_cors import CORS
 from dotenv import load_dotenv
@@ -15,6 +24,7 @@ from dotenv import load_dotenv
 from charts_api import charts_api
 from data_management_api import data_api
 from upload_data_api import upload_api
+from analysis_api import process_excel_analysis
 
 # Load environment variables
 load_dotenv()
@@ -41,7 +51,8 @@ def health():
             "Kudos Management",
             "Today's Top Issues",
             "Yesterday's Top Issues",
-            "Chart Data API"
+            "Chart Data API",
+            "Excel/CSV Analysis API"
         ]
     }), 200
 
@@ -157,6 +168,189 @@ def upload_file():
     """Upload file to Azure Blob Storage"""
     return upload_api.upload_file()
 
+# ==================== ANALYSIS ENDPOINTS ====================
+
+@app.route('/api/analysis/process', methods=['POST'])
+def process_analysis():
+    """Process Excel/CSV file for analysis"""
+    from flask import request, jsonify
+    import tempfile
+    import os
+    
+    try:
+        # Check if file was uploaded
+        if 'file' not in request.files:
+            return jsonify({"status": "error", "message": "No file provided"}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({"status": "error", "message": "No file selected"}), 400
+        
+        # Get processing options from form data
+        options = {}
+        try:
+            options['sheetsMode'] = request.form.get('sheetsMode', 'top-k')
+            options['sheetsTopK'] = int(request.form.get('sheetsTopK', 6))
+            options['devicesMode'] = request.form.get('devicesMode', 'top-k')
+            options['devicesTopK'] = int(request.form.get('devicesTopK', 6))
+            options['pixelsPerDevice'] = int(request.form.get('pixelsPerDevice', 3))
+            options['method'] = request.form.get('method', 'minimize-sd')
+            options['basis'] = request.form.get('basis', 'forward')
+            options['useAllSheets'] = request.form.get('useAllSheets', 'true').lower() == 'true'
+            options['sheetIds'] = request.form.get('sheetIds', '')
+        except (ValueError, TypeError) as e:
+            return jsonify({"status": "error", "message": f"Invalid options format: {str(e)}"}), 400
+        
+        # Save uploaded file temporarily
+        tmp_file = None
+        try:
+            # Determine file extension
+            if file.filename.lower().endswith(('.xlsx', '.xls')):
+                suffix = '.xlsx'
+            elif file.filename.lower().endswith('.csv'):
+                suffix = '.csv'
+            else:
+                suffix = '.xlsx'  # Default fallback
+            
+            tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+            file.save(tmp_file.name)
+            tmp_file.close()  # Close file handle before processing
+            
+            # Process the file
+            result = process_excel_analysis(tmp_file.name, options)
+            
+            # Add filename to result
+            result['fileName'] = file.filename
+            
+            return jsonify(result)
+            
+        finally:
+            # Safe cleanup - try to delete temp file if it exists
+            if tmp_file and os.path.exists(tmp_file.name):
+                try:
+                    os.unlink(tmp_file.name)
+                except Exception:
+                    # If deletion fails, just log it - don't crash the request
+                    print(f"⚠️ Could not delete temporary file: {tmp_file.name}")
+                    pass
+            
+    except Exception as e:
+        import traceback
+        error_msg = f"Unexpected error: {str(e)}"
+        traceback_str = traceback.format_exc()
+        print(f"❌ ANALYSIS ERROR: {error_msg}")
+        print(f"📋 TRACEBACK:\n{traceback_str}")
+        
+        return jsonify({
+            "status": "error", 
+            "message": error_msg,
+            "logs": [error_msg, f"Traceback: {traceback_str}"]
+        }), 500
+
+@app.route('/api/analysis/download', methods=['POST'])
+def download_analysis_results():
+    """Generate and download analysis results as separate Excel files"""
+    from flask import request, jsonify, send_file
+    import tempfile
+    import os
+    import pandas as pd
+    from datetime import datetime
+    from analysis_api import stored_results
+    
+    try:
+        # Get the file type from request
+        data = request.get_json() or {}
+        file_type = data.get('fileType', 'quick')  # 'quick' or 'entire'
+        
+        print(f"🔍 Download request received - fileType: {file_type}")
+        print(f"📝 Request data: {data}")
+        
+        # Check if we have stored results
+        if stored_results is None:
+            print("❌ No stored results available")
+            return jsonify({"status": "error", "message": "No analysis results available. Please run analysis first."}), 400
+        
+        quick_df = stored_results.get('quick_data')
+        entire_df = stored_results.get('entire_data')
+        
+        if quick_df is None or quick_df.empty:
+            return jsonify({"status": "error", "message": "No Quick Data available"}), 400
+        
+        # Create timestamp for filename
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        # Create temporary file
+        if file_type == 'entire':
+            if entire_df is None or entire_df.empty:
+                return jsonify({"status": "error", "message": "No Entire Data available"}), 400
+            
+            filename = f"Entire_Data_{timestamp}.xlsx"
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_file:
+                with pd.ExcelWriter(tmp_file.name, engine='openpyxl') as writer:
+                    entire_df.to_excel(writer, sheet_name='Entire_Data', index=False)
+                    
+                    # Auto-adjust column widths
+                    workbook = writer.book
+                    worksheet = writer.sheets['Entire_Data']
+                    for column in worksheet.columns:
+                        max_length = 0
+                        column_letter = column[0].column_letter
+                        for cell in column:
+                            try:
+                                if len(str(cell.value)) > max_length:
+                                    max_length = len(str(cell.value))
+                            except:
+                                pass
+                        adjusted_width = min(max_length + 2, 50)
+                        worksheet.column_dimensions[column_letter].width = adjusted_width
+                
+                return send_file(
+                    tmp_file.name,
+                    as_attachment=True,
+                    download_name=filename,
+                    mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                )
+        else:
+            # Default to quick data
+            filename = f"Quick_Data_{timestamp}.xlsx"
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_file:
+                with pd.ExcelWriter(tmp_file.name, engine='openpyxl') as writer:
+                    quick_df.to_excel(writer, sheet_name='Quick_Data', index=False)
+                    
+                    # Auto-adjust column widths
+                    workbook = writer.book
+                    worksheet = writer.sheets['Quick_Data']
+                    for column in worksheet.columns:
+                        max_length = 0
+                        column_letter = column[0].column_letter
+                        for cell in column:
+                            try:
+                                if len(str(cell.value)) > max_length:
+                                    max_length = len(str(cell.value))
+                            except:
+                                pass
+                        adjusted_width = min(max_length + 2, 50)
+                        worksheet.column_dimensions[column_letter].width = adjusted_width
+                
+                return send_file(
+                    tmp_file.name,
+                    as_attachment=True,
+                    download_name=filename,
+                    mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                )
+            
+    except Exception as e:
+        import traceback
+        error_msg = f"Download error: {str(e)}"
+        traceback_str = traceback.format_exc()
+        print(f"❌ DOWNLOAD ERROR: {error_msg}")
+        print(f"📋 TRACEBACK:\n{traceback_str}")
+        
+        return jsonify({
+            "status": "error", 
+            "message": error_msg
+        }), 500
+
 # ==================== START SERVER ====================
 
 if __name__ == '__main__':
@@ -168,7 +362,10 @@ if __name__ == '__main__':
     print("  ✅ Today's Top Issues (data_management_api.py)")
     print("  ✅ Yesterday's Top Issues (data_management_api.py)")
     print("  ✅ Chart Data API (charts_api.py)")
+    print("  ✅ Excel/CSV Analysis API (analysis_api.py)")
     print("\n🔧 Manual Reset: POST /api/reset-today")
     print("🏥 Health Check: GET /api/health")
+    print("📊 Analysis Processing: POST /api/analysis/process")
+    print("📥 Download Results: POST /api/analysis/download")
     print("=" * 60)
     app.run(host='0.0.0.0', port=7071, debug=False)
