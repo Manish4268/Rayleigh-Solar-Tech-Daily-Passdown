@@ -355,12 +355,27 @@ class StabilityHistoryModel:
     def get_by_position(self, section_key, subsection_key, row, col):
         """Get history for specific position"""
         try:
-            history = list(self.collection.find({
+            # Try both field naming conventions (camelCase and snake_case)
+            query_camelcase = {
+                "sectionKey": section_key,
+                "subsectionKey": subsection_key,
+                "row": row,
+                "col": col
+            }
+            
+            query_snake_case = {
                 "section_key": section_key,
                 "subsection_key": subsection_key,
                 "row": row,
                 "col": col
-            }).sort("created_at", -1))  # Most recent first
+            }
+            
+            # First try camelCase (which is what device model uses)
+            history = list(self.collection.find(query_camelcase).sort("created_at", -1))
+            
+            # If no results with camelCase, try snake_case
+            if not history:
+                history = list(self.collection.find(query_snake_case).sort("created_at", -1))
             
             # Convert ObjectId to string
             for item in history:
@@ -387,15 +402,28 @@ class StabilityHistoryModel:
             history_entry = device.copy()
             history_entry['removed_by'] = removed_by
             history_entry['removed_at'] = datetime.utcnow()
-            
+            print(f"Archiving device to history: {history_entry}")
             # Remove the original _id to create new history entry
             if '_id' in history_entry:
                 del history_entry['_id']
             
-            # Calculate duration if possible
-            if device.get('in_date') and device.get('in_time'):
+            # Ensure consistent field naming - prefer snake_case for history
+            if 'section_key' in history_entry and 'sectionKey' not in history_entry:
+                history_entry['sectionKey'] = history_entry['section_key']
+            if 'subsection_key' in history_entry and 'subsectionKey' not in history_entry:
+                history_entry['subsectionKey'] = history_entry['subsection_key']
+            
+            # Normalize createdBy to created_by for consistency
+            if 'createdBy' in history_entry:
+                history_entry['created_by'] = history_entry['createdBy']
+            
+            # Calculate duration and set removal times
+            in_date = device.get('inDate') or device.get('in_date')
+            in_time = device.get('inTime') or device.get('in_time')
+            
+            if in_date and in_time:
                 try:
-                    in_datetime_str = f"{device['in_date']} {device['in_time']}"
+                    in_datetime_str = f"{in_date} {in_time}"
                     in_datetime = datetime.strptime(in_datetime_str, "%Y-%m-%d %H:%M")
                     duration = datetime.utcnow() - in_datetime
                     
@@ -403,6 +431,7 @@ class StabilityHistoryModel:
                     history_entry['duration_hours'] = total_seconds // 3600
                     history_entry['duration_minutes'] = (total_seconds % 3600) // 60
                     history_entry['duration_seconds'] = total_seconds % 60
+                    history_entry['actual_hours_stayed'] = total_seconds / 3600
                     
                     # Set out_date and out_time
                     now = datetime.utcnow()
@@ -411,6 +440,12 @@ class StabilityHistoryModel:
                     
                 except (ValueError, KeyError):
                     pass
+            
+            # Copy planned duration from device if available
+            if 'hours' in device or 'minutes' in device or 'seconds' in device:
+                history_entry['planned_hours'] = device.get('hours', 0)
+                history_entry['planned_minutes'] = device.get('minutes', 0) 
+                history_entry['planned_seconds'] = device.get('seconds', 0)
             
             result = self.collection.insert_one(history_entry)
             return str(result.inserted_id)

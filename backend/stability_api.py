@@ -307,21 +307,24 @@ class StabilityAPI:
             if not STABILITY_MODELS_AVAILABLE:
                 return jsonify({'success': False, 'error': 'Stability models not available'}), 500
             
-            # Parse device path: section/subsection/row/col
+            # Flask already URL-decodes the path parameter for us
             path_parts = device_path.split('/')
-            if len(path_parts) != 4:
+            
+            if len(path_parts) < 4:
                 return jsonify({'success': False, 'error': 'Invalid device path format'}), 400
             
-            section_key, subsection_key, row, col = path_parts
-            # Handle empty subsection
+            # Extract row and col from the end
+            try:
+                col = int(path_parts[-1])
+                row = int(path_parts[-2])
+                subsection_key = path_parts[-3]
+                section_key = '/'.join(path_parts[:-3])
+            except (ValueError, IndexError):
+                return jsonify({'success': False, 'error': 'Invalid row/col values'}), 400
+            
+            # Handle empty subsection_key placeholder
             if subsection_key == '_empty_':
                 subsection_key = ''
-            
-            try:
-                row = int(row)
-                col = int(col)
-            except ValueError:
-                return jsonify({'success': False, 'error': 'Invalid row/col values'}), 400
             
             stability_db = StabilityDatabaseManager()
             if not stability_db.connected:
@@ -329,7 +332,7 @@ class StabilityAPI:
                 
             history_model = StabilityHistoryModel(stability_db)
             history = history_model.get_by_position(section_key, subsection_key, row, col)
-            
+            print(f"Retrieved history for {section_key}/{subsection_key} ({row},{col}): {history}")
             stability_db.close_connection()
             
             return jsonify({

@@ -425,6 +425,35 @@ const HistoryDevicePopup = ({ open, onOpenChange, deviceData }) => {
     return `${hours}h ${minutes}m ${seconds}s`;
   };
 
+  // Helper function to get out_date and out_time, with fallback to removed_at
+  const getOutDateTime = () => {
+    // First try the new fields
+    if (deviceData.out_date && deviceData.out_time) {
+      return {
+        date: deviceData.out_date,
+        time: deviceData.out_time
+      };
+    }
+    
+    // Fallback: calculate from removed_at if available
+    if (deviceData.removed_at) {
+      try {
+        // removed_at comes as ISO string from backend
+        const removedDate = new Date(deviceData.removed_at);
+        return {
+          date: removedDate.toISOString().split('T')[0], // YYYY-MM-DD
+          time: removedDate.toTimeString().substring(0, 5) // HH:MM
+        };
+      } catch (e) {
+        console.error('Error parsing removed_at:', e);
+      }
+    }
+    
+    return { date: 'N/A', time: 'N/A' };
+  };
+
+  const outDateTime = getOutDateTime();
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl bg-black text-white border border-gray-600 [&>button]:hidden">
@@ -446,7 +475,7 @@ const HistoryDevicePopup = ({ open, onOpenChange, deviceData }) => {
           <div>
             <label className="block text-sm font-medium mb-1 text-white">Device ID:</label>
             <div className="bg-gray-800 text-white border border-gray-600 rounded px-3 py-2">
-              {deviceData.deviceId || 'N/A'}
+              {deviceData.deviceId || deviceData.device_id || 'N/A'}
             </div>
           </div>
 
@@ -454,13 +483,13 @@ const HistoryDevicePopup = ({ open, onOpenChange, deviceData }) => {
             <div>
               <label className="block text-sm font-medium mb-1 text-white">In Date:</label>
               <div className="bg-gray-800 text-white border border-gray-600 rounded px-3 py-2">
-                {deviceData.inDate || 'N/A'}
+                {deviceData.inDate || deviceData.in_date || 'N/A'}
               </div>
             </div>
             <div>
               <label className="block text-sm font-medium mb-1 text-white">In Time:</label>
               <div className="bg-gray-800 text-white border border-gray-600 rounded px-3 py-2">
-                {deviceData.inTime || 'N/A'}
+                {deviceData.inTime || deviceData.in_time || 'N/A'}
               </div>
             </div>
           </div>
@@ -469,13 +498,13 @@ const HistoryDevicePopup = ({ open, onOpenChange, deviceData }) => {
             <div>
               <label className="block text-sm font-medium mb-1 text-white">Out Date (Actual):</label>
               <div className="bg-gray-800 text-white border border-gray-600 rounded px-3 py-2">
-                {deviceData.outDate || 'N/A'}
+                {outDateTime.date}
               </div>
             </div>
             <div>
               <label className="block text-sm font-medium mb-1 text-white">Out Time (Actual):</label>
               <div className="bg-gray-800 text-white border border-gray-600 rounded px-3 py-2">
-                {deviceData.outTime || 'N/A'}
+                {outDateTime.time}
               </div>
             </div>
           </div>
@@ -484,13 +513,14 @@ const HistoryDevicePopup = ({ open, onOpenChange, deviceData }) => {
             <div>
               <label className="block text-sm font-medium mb-1 text-white">Planned Time:</label>
               <div className="bg-gray-800 text-white border border-gray-600 rounded px-3 py-2">
-                {deviceData.duration_hours || 0}h {deviceData.duration_minutes || 0}m {deviceData.duration_seconds || 0}s
+                {(deviceData.hours || 0)}h {(deviceData.minutes || 0)}m {(deviceData.seconds || 0)}s
               </div>
             </div>
             <div>
               <label className="block text-sm font-medium mb-1 text-white">Actual Time Stayed:</label>
               <div className="bg-gray-800 text-white border border-gray-600 rounded px-3 py-2">
-                {deviceData.actualHoursStayed ? formatDecimalHoursToHMS(deviceData.actualHoursStayed) : '0h 0m 0s'}
+                {deviceData.actual_hours_stayed ? formatDecimalHoursToHMS(deviceData.actual_hours_stayed) : 
+                 `${deviceData.duration_hours || 0}h ${deviceData.duration_minutes || 0}m ${deviceData.duration_seconds || 0}s`}
               </div>
             </div>
           </div>
@@ -499,13 +529,13 @@ const HistoryDevicePopup = ({ open, onOpenChange, deviceData }) => {
             <div>
               <label className="block text-sm font-medium mb-1 text-white">Placed By:</label>
               <div className="bg-gray-800 text-white border border-gray-600 rounded px-3 py-2">
-                {deviceData.placedBy || 'Unknown'}
+                {deviceData.placedBy || deviceData.created_by || 'Unknown'}
               </div>
             </div>
             <div>
               <label className="block text-sm font-medium mb-1 text-white">Removed By:</label>
               <div className="bg-gray-800 text-white border border-gray-600 rounded px-3 py-2">
-                {deviceData.removedBy || 'Unknown'}
+                {deviceData.removedBy || deviceData.removed_by || 'Unknown'}
               </div>
             </div>
           </div>
@@ -513,7 +543,7 @@ const HistoryDevicePopup = ({ open, onOpenChange, deviceData }) => {
           <div>
             <label className="block text-sm font-medium mb-1 text-white">Removal Type:</label>
             <div className="bg-gray-800 text-white border border-gray-600 rounded px-3 py-2">
-              {deviceData.removalType === 'automatic' ? 'Automatic (Expired)' : 'Manual'}
+              {(deviceData.removalType || deviceData.removal_type) === 'automatic' ? 'Automatic (Expired)' : 'Manual'}
               {deviceData.isEarlyRemoval && ' - Early Removal'}
             </div>
           </div>
@@ -704,7 +734,28 @@ export default function StabilityDashboard() {
   };
 
   const handleHistoryItemClick = (device) => {
-    setSelectedHistoryDevice(device);
+    // Map backend history fields to frontend expected format
+    const mappedDevice = {
+      deviceId: device.deviceId || device.device_id,
+      inDate: device.inDate || device.in_date,
+      inTime: device.inTime || device.in_time,
+      out_date: device.out_date || device.outDate,
+      out_time: device.out_time || device.outTime,
+      removed_at: device.removed_at, // Keep for fallback calculation
+      hours: device.hours || 0,
+      minutes: device.minutes || 0, 
+      seconds: device.seconds || 0,
+      duration_hours: device.duration_hours || 0,
+      duration_minutes: device.duration_minutes || 0,
+      duration_seconds: device.duration_seconds || 0,
+      actual_hours_stayed: device.actual_hours_stayed || device.actualHoursStayed,
+      placedBy: device.created_by || device.createdBy || device.placedBy, // Try snake_case first, then camelCase
+      removedBy: device.removed_by || device.removedBy,
+      removalType: device.removalType || device.removal_type,
+      isEarlyRemoval: device.isEarlyRemoval || device.is_early_removal
+    };
+    
+    setSelectedHistoryDevice(mappedDevice);
     setHistoryDevicePopupOpen(true);
   };
 
