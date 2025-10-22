@@ -25,6 +25,7 @@ from charts_api import charts_api
 from data_management_api import data_api
 from upload_data_api import upload_api
 from analysis_api import process_excel_analysis
+from stability_api import stability_api
 
 # Load environment variables
 load_dotenv()
@@ -167,6 +168,48 @@ def make_connection_check():
 def upload_file():
     """Upload file to Azure Blob Storage"""
     return upload_api.upload_file()
+
+# ==================== STABILITY ENDPOINTS ====================
+
+@app.route('/api/stability/grid-data', methods=['GET'])
+def get_stability_grid_data():
+    """Get all stability grid data including devices and history"""
+    return stability_api.get_grid_data()
+
+@app.route('/api/stability/devices', methods=['GET'])
+def get_stability_devices():
+    """Get all active stability devices"""
+    return stability_api.get_devices()
+
+@app.route('/api/stability/devices', methods=['POST'])
+def create_stability_device():
+    """Create a new stability device"""
+    return stability_api.create_device()
+
+@app.route('/api/stability/devices/<path:device_path>', methods=['PUT'])
+def update_stability_device(device_path):
+    """Update stability device by position"""
+    return stability_api.device_by_position(device_path)
+
+@app.route('/api/stability/devices/<path:device_path>', methods=['DELETE'])
+def delete_stability_device(device_path):
+    """Delete stability device by position (soft delete)"""
+    return stability_api.device_by_position(device_path)
+
+@app.route('/api/stability/history/<path:device_path>', methods=['GET'])
+def get_stability_history(device_path):
+    """Get history for specific stability slot"""
+    return stability_api.get_history(device_path)
+
+@app.route('/api/stability/check-expired', methods=['GET'])
+def check_expired_devices():
+    """Check for devices that have exceeded their time_hours"""
+    return stability_api.check_expired_devices()
+
+@app.route('/api/stability/process-expired', methods=['POST'])
+def process_expired_devices():
+    """Process expired devices automatically and return details"""
+    return stability_api.process_expired_devices()
 
 # ==================== ANALYSIS ENDPOINTS ====================
 
@@ -363,9 +406,12 @@ if __name__ == '__main__':
     print("  ✅ Yesterday's Top Issues (data_management_api.py)")
     print("  ✅ Chart Data API (charts_api.py)")
     print("  ✅ Excel/CSV Analysis API (analysis_api.py)")
+    print("  ✅ Stability Dashboard API (stability_api.py)")
     print("\n🔧 Manual Reset: POST /api/reset-today")
     print("🏥 Health Check: GET /api/health")
     print("📊 Analysis Processing: POST /api/analysis/process")
     print("📥 Download Results: POST /api/analysis/download")
+    print("🔬 Stability Grid: GET /api/stability/grid-data")
+    print("⚗️ Device Management: /api/stability/devices")
     print("=" * 60)
     app.run(host='0.0.0.0', port=7071, debug=False)
