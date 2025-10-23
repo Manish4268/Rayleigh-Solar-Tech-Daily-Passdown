@@ -144,7 +144,7 @@ class StabilityDeviceModel:
         """Create new device"""
         try:
             # Add metadata
-            data['created_at'] = datetime.utcnow()
+            data['created_at'] = datetime.now()
             data['status'] = 'active'
             
             result = self.collection.insert_one(data)
@@ -158,7 +158,7 @@ class StabilityDeviceModel:
         try:
             from bson import ObjectId
             update_data = data.copy()
-            update_data['updated_at'] = datetime.utcnow()
+            update_data['updated_at'] = datetime.now()
             
             result = self.collection.update_one(
                 {"_id": ObjectId(device_id)},
@@ -170,7 +170,7 @@ class StabilityDeviceModel:
             return False
     
     def delete(self, device_id):
-        """Soft delete device by ID (mark as removed)"""
+        """Delete device by ID - archives to history then removes from stability_devices"""
         try:
             from bson import ObjectId
             
@@ -181,20 +181,14 @@ class StabilityDeviceModel:
             
             # Move to history
             history_model = StabilityHistoryModel(self.db_manager)
-            history_model.archive_device(device, "System")
+            history_result = history_model.archive_device(device, "System")
+            if not history_result:
+                print(f"Failed to archive device to history")
+                return False
             
-            # Mark as removed
-            result = self.collection.update_one(
-                {"_id": ObjectId(device_id)},
-                {
-                    "$set": {
-                        "status": "removed",
-                        "removed_at": datetime.utcnow(),
-                        "removed_by": "System"
-                    }
-                }
-            )
-            return result.modified_count > 0
+            # Actually DELETE the device from stability_devices
+            result = self.collection.delete_one({"_id": ObjectId(device_id)})
+            return result.deleted_count > 0
         except Exception as e:
             print(f"Error deleting device: {e}")
             return False
@@ -208,7 +202,7 @@ class StabilityDeviceModel:
             if existing:
                 # Update existing device
                 update_data = data.copy()
-                update_data['updated_at'] = datetime.utcnow()
+                update_data['updated_at'] = datetime.now()
                 
                 result = self.collection.update_one(
                     {"_id": existing["_id"]},
@@ -255,33 +249,34 @@ class StabilityDeviceModel:
                 print(f"📝 Device archived to history")
             except Exception as history_error:
                 print(f"⚠️ Warning: Could not archive to history: {history_error}")
+                return False  # Don't delete if archiving failed
             
-            # Mark as removed using the same field names as the database (camelCase)
-            update_query = {
-                "sectionKey": section_key,
-                "subsectionKey": subsection_key,
-                "row": row,
-                "col": col,
-                "status": {"$ne": "removed"}
-            }
+            # Store the _id for deletion BEFORE archiving
+            from bson import ObjectId
+            device_object_id = device['_id']
+            if isinstance(device_object_id, str):
+                device_object_id = ObjectId(device_object_id)
             
-            update_msg = f"🔄 Updating device with query: {update_query}"
-            print(update_msg)
+            # Actually DELETE the device from stability_devices collection using _id
+            delete_query = {"_id": device_object_id}
+            
+            delete_msg = f"🗑️ Deleting device from stability_devices with _id: {device_object_id}"
+            print(delete_msg)
             with open("debug.log", "a", encoding="utf-8") as f:
-                f.write(f"{update_msg}\n")
+                f.write(f"{delete_msg}\n")
             
-            result = self.collection.update_one(
-                update_query,
-                {
-                    "$set": {
-                        "status": "removed",
-                        "removed_at": datetime.utcnow(),
-                        "removed_by": removed_by
-                    }
-                }
-            )
-            print(f"📊 Update result: modified_count={result.modified_count}, matched_count={result.matched_count}")
-            return result.modified_count > 0
+            result = self.collection.delete_one(delete_query)
+            final_msg = f"📊 Delete result: deleted_count={result.deleted_count}"
+            print(final_msg)
+            with open("debug.log", "a", encoding="utf-8") as f:
+                f.write(f"{final_msg}\n")
+            
+            if result.deleted_count > 0:
+                print(f"✅ Successfully deleted device from stability_devices collection")
+            else:
+                print(f"❌ Failed to delete device - deleted_count is 0")
+            
+            return result.deleted_count > 0
             
         except Exception as e:
             print(f"Error soft deleting device: {e}")
@@ -294,29 +289,46 @@ class StabilityDeviceModel:
             active_devices = self.get_all()
             
             for device in active_devices:
-                # Check if device has time_hours field and in_date/in_time
-                if not device.get('time_hours') or not device.get('in_date') or not device.get('in_time'):
+                # Support both camelCase and snake_case field names
+                time_hours = device.get('time_hours') or device.get('timeHours')
+                in_date = device.get('in_date') or device.get('inDate')
+                in_time = device.get('in_time') or device.get('inTime')
+                
+                # Check if device has required fields
+                if not time_hours or not in_date or not in_time:
                     continue
                 
                 try:
-                    # Parse in_date and in_time
-                    in_datetime_str = f"{device['in_date']} {device['in_time']}"
-                    in_datetime = datetime.strptime(in_datetime_str, "%Y-%m-%d %H:%M")
+                    # Parse in_date and in_time - handle both HH:MM and HH:MM:SS formats
+                    in_datetime_str = f"{in_date} {in_time}"
+                    # Try parsing with seconds first, then without
+                    try:
+                        in_datetime = datetime.strptime(in_datetime_str, "%Y-%m-%d %H:%M:%S")
+                    except ValueError:
+                        in_datetime = datetime.strptime(in_datetime_str, "%Y-%m-%d %H:%M")
                     
                     # Calculate expiry time
-                    time_hours = float(device['time_hours'])
-                    expiry_time = in_datetime + timedelta(hours=time_hours)
+                    time_hours_float = float(time_hours)
+                    expiry_time = in_datetime + timedelta(hours=time_hours_float)
                     
-                    # Check if expired
-                    if datetime.now() > expiry_time:
+                    # Check if expired - use local time
+                    current_time = datetime.now()
+                    print(f"🕐 Device {device.get('deviceId')}: in={in_datetime}, expiry={expiry_time}, now={current_time}")
+                    
+                    if current_time > expiry_time:
+                        # Get section/subsection keys with fallback to both naming conventions
+                        section_key = device.get('sectionKey') or device.get('section_key', 'Unknown')
+                        subsection_key = device.get('subsectionKey') or device.get('subsection_key', '')
+                        device_id = device.get('deviceId') or device.get('device_id', 'Unknown')
+                        
                         expired_devices.append({
-                            'device_id': device.get('id', device.get('device_id', 'Unknown')),
-                            'section_key': device['section_key'],
-                            'subsection_key': device['subsection_key'],
+                            'device_id': device_id,
+                            'section_key': section_key,
+                            'subsection_key': subsection_key,
                             'row': device['row'],
                             'col': device['col'],
                             'expired_time': expiry_time.isoformat(),
-                            'hours_over': (datetime.now() - expiry_time).total_seconds() / 3600
+                            'hours_over': (current_time - expiry_time).total_seconds() / 3600
                         })
                         
                 except (ValueError, KeyError) as e:
@@ -389,7 +401,7 @@ class StabilityHistoryModel:
     def add_entry(self, data):
         """Add history entry"""
         try:
-            data['created_at'] = datetime.utcnow()
+            data['created_at'] = datetime.now()
             result = self.collection.insert_one(data)
             return str(result.inserted_id)
         except Exception as e:
@@ -401,7 +413,7 @@ class StabilityHistoryModel:
         try:
             history_entry = device.copy()
             history_entry['removed_by'] = removed_by
-            history_entry['removed_at'] = datetime.utcnow()
+            history_entry['removed_at'] = datetime.now()
             print(f"Archiving device to history: {history_entry}")
             # Remove the original _id to create new history entry
             if '_id' in history_entry:
@@ -424,8 +436,13 @@ class StabilityHistoryModel:
             if in_date and in_time:
                 try:
                     in_datetime_str = f"{in_date} {in_time}"
-                    in_datetime = datetime.strptime(in_datetime_str, "%Y-%m-%d %H:%M")
-                    duration = datetime.utcnow() - in_datetime
+                    # Handle both HH:MM and HH:MM:SS formats
+                    try:
+                        in_datetime = datetime.strptime(in_datetime_str, "%Y-%m-%d %H:%M:%S")
+                    except ValueError:
+                        in_datetime = datetime.strptime(in_datetime_str, "%Y-%m-%d %H:%M")
+                    
+                    duration = datetime.now() - in_datetime
                     
                     total_seconds = int(duration.total_seconds())
                     history_entry['duration_hours'] = total_seconds // 3600
@@ -434,7 +451,7 @@ class StabilityHistoryModel:
                     history_entry['actual_hours_stayed'] = total_seconds / 3600
                     
                     # Set out_date and out_time
-                    now = datetime.utcnow()
+                    now = datetime.now()
                     history_entry['out_date'] = now.strftime("%Y-%m-%d")
                     history_entry['out_time'] = now.strftime("%H:%M")
                     

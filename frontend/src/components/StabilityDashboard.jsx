@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Edit, Save, RefreshCw, Trash2, Minimize2, History, ArrowLeft, X } from "lucide-react";
 import { stabilityAPI } from "../lib/api";
+import DevicePerformanceChart from "./DevicePerformanceChart";
 
 // Default grid structure - will be populated from API
 const initialGridData = {
@@ -94,6 +95,8 @@ const DevicePopup = ({
   const [savedData, setSavedData] = useState(deviceData || {});
   const [showHistory, setShowHistory] = useState(false);
   const [personName, setPersonName] = useState('');
+  const [historySelectedIndex, setHistorySelectedIndex] = useState(0);
+  const [selectedHistoryLocal, setSelectedHistoryLocal] = useState(null);
 
   useEffect(() => {
     if (deviceData) {
@@ -145,14 +148,42 @@ const DevicePopup = ({
     onRefresh();
   };
 
+  useEffect(() => {
+    if (historyItems && historyItems.length > 0) {
+      setHistorySelectedIndex(0);
+      const first = historyItems[0];
+      setSelectedHistoryLocal({
+        deviceId: first.deviceId || first.device_id,
+        inDate: first.inDate || first.in_date,
+        inTime: first.inTime || first.in_time,
+        out_date: first.out_date || first.outDate,
+        out_time: first.out_time || first.outTime,
+        removed_at: first.removed_at,
+        hours: first.hours || 0,
+        minutes: first.minutes || 0,
+        seconds: first.seconds || 0,
+        duration_hours: first.duration_hours || 0,
+        duration_minutes: first.duration_minutes || 0,
+        duration_seconds: first.duration_seconds || 0,
+        actual_hours_stayed: first.actual_hours_stayed || first.actualHoursStayed,
+        placedBy: first.created_by || first.createdBy || first.placedBy,
+        removedBy: first.removed_by || first.removedBy,
+        removalType: first.removalType || first.removal_type,
+        isEarlyRemoval: first.isEarlyRemoval || first.is_early_removal
+      });
+    } else {
+      setSelectedHistoryLocal(null);
+    }
+  }, [historyItems]);
+
   if (!deviceData) return null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl bg-black text-white border border-gray-600 [&>button]:hidden">
-        <DialogHeader>
-          <DialogTitle className="flex items-center justify-between text-white">
-            Device Information
+      <DialogContent className="max-w-6xl min-h-[90vh] max-h-[90vh] overflow-y-auto bg-black text-white border border-gray-600 [&>button]:hidden">
+          <DialogHeader className="pb-2">
+            <DialogTitle className="flex items-center justify-between text-white">
+              Device Information {editableData.id && `- ${editableData.id}`}
             <Button 
               variant="ghost" 
               size="sm" 
@@ -164,9 +195,10 @@ const DevicePopup = ({
           </DialogTitle>
         </DialogHeader>
         
-        <div className="flex space-x-4">
-          {/* Device Information Section */}
-          <div className="flex-1 space-y-4">
+        {/* Two Column Layout */}
+        <div className="grid grid-cols-2 gap-6 mt-2 mb-2">
+          {/* Left Column: Device ID, Dates, Times, Name */}
+          <div className="space-y-2">
             <div className="flex items-center space-x-2">
               <RefreshCw 
                 className="h-4 w-4 text-white cursor-pointer hover:text-gray-300 transition-colors" 
@@ -176,42 +208,56 @@ const DevicePopup = ({
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1 text-white">Device ID:</label>
+              <label className="block text-xs font-medium mb-0.5 text-white">Device ID:</label>
               <Input
                 value={editableData.id || ''}
                 onChange={(e) => setEditableData({ ...editableData, id: e.target.value })}
                 placeholder="Enter device ID"
-                className="bg-gray-800 text-white border-gray-600"
+                className="bg-gray-800 text-white border-gray-600 h-8"
               />
             </div>
 
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-xs font-medium mb-0.5 text-white">In Date:</label>
+                <Input
+                  type="date"
+                  value={editableData.inDate || ''}
+                  onChange={(e) => setEditableData({ ...editableData, inDate: e.target.value })}
+                  className="bg-gray-800 text-white border-gray-600 h-8"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-0.5 text-white">In Time:</label>
+                <Input
+                  type="time"
+                  value={editableData.inTime || ''}
+                  onChange={(e) => setEditableData({ ...editableData, inTime: e.target.value })}
+                  className="bg-gray-800 text-white border-gray-600 h-8"
+                />
+              </div>
+            </div>
+
             <div>
-              <label className="block text-sm font-medium mb-1 text-white">In Date:</label>
+              <label className="block text-xs font-medium mb-0.5 text-white">Your Name:</label>
               <Input
-                type="date"
-                value={editableData.inDate || ''}
-                onChange={(e) => setEditableData({ ...editableData, inDate: e.target.value })}
-                className="bg-gray-800 text-white border-gray-600"
+                value={personName}
+                onChange={(e) => setPersonName(e.target.value)}
+                placeholder="Enter your name for tracking changes"
+                className="bg-gray-800 text-white border-gray-600 h-8"
               />
             </div>
+          </div>
 
+          {/* Right Column: Duration, Progress, Buttons */}
+          <div className="space-y-2">
             <div>
-              <label className="block text-sm font-medium mb-1 text-white">In Time:</label>
-              <Input
-                type="time"
-                value={editableData.inTime || ''}
-                onChange={(e) => setEditableData({ ...editableData, inTime: e.target.value })}
-                className="bg-gray-800 text-white border-gray-600"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium mb-1 text-white">
+              <label className="block text-xs font-medium mb-0.5 text-white">
                 Duration: {editableData.hours || 0}h {editableData.minutes || 0}m {editableData.seconds || 0}s
               </label>
               <div className="grid grid-cols-3 gap-2">
                 <div>
-                  <label className="block text-xs text-gray-400 mb-1">Hours</label>
+                  <label className="block text-xs text-gray-400 mb-0.5">Hours</label>
                   <Input
                     type="number"
                     value={editableData.hours || ''}
@@ -227,11 +273,11 @@ const DevicePopup = ({
                     }}
                     placeholder="0"
                     min="0"
-                    className="bg-gray-800 text-white border-gray-600"
+                    className="bg-gray-800 text-white border-gray-600 h-8"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-400 mb-1">Minutes</label>
+                  <label className="block text-xs text-gray-400 mb-0.5">Minutes</label>
                   <Input
                     type="number"
                     value={editableData.minutes || ''}
@@ -248,11 +294,11 @@ const DevicePopup = ({
                     placeholder="0"
                     min="0"
                     max="59"
-                    className="bg-gray-800 text-white border-gray-600"
+                    className="bg-gray-800 text-white border-gray-600 h-8"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-400 mb-1">Seconds</label>
+                  <label className="block text-xs text-gray-400 mb-0.5">Seconds</label>
                   <Input
                     type="number"
                     value={editableData.seconds || ''}
@@ -269,7 +315,7 @@ const DevicePopup = ({
                     placeholder="0"
                     min="0"
                     max="59"
-                    className="bg-gray-800 text-white border-gray-600"
+                    className="bg-gray-800 text-white border-gray-600 h-8"
                   />
                 </div>
               </div>
@@ -277,8 +323,6 @@ const DevicePopup = ({
 
             {/* Show calculated Out Date and Out Time */}
             {editableData.inDate && editableData.inTime && (
-              // For existing devices (green grid), always show if device has data
-              // For new devices (gray grid), only show if at least one duration component > 0
               isExistingDevice ? 
                 (editableData.id && editableData.id.trim() !== '') || 
                 (editableData.hours > 0) || (editableData.minutes > 0) || (editableData.seconds > 0) ||
@@ -287,10 +331,9 @@ const DevicePopup = ({
                 (editableData.hours > 0) || (editableData.minutes > 0) || (editableData.seconds > 0) ||
                 (editableData.time && editableData.time > 0)
             ) && (
-              <div className="bg-gray-700 p-3 rounded border border-gray-600">
-                <label className="block text-sm font-medium mb-1 text-green-400">Calculated Out Date & Time:</label>
-                <div className="text-white">
-                  <div>Duration: {editableData.hours || 0}h {editableData.minutes || 0}m {editableData.seconds || 0}s</div>
+              <div className="bg-gray-700 p-2 rounded border border-gray-600">
+                <label className="block text-xs font-medium mb-0.5 text-green-400">Calculated Out Date & Time:</label>
+                <div className="text-white text-xs">
                   {(() => {
                     try {
                       const inDateTime = new Date(`${editableData.inDate}T${editableData.inTime}`);
@@ -308,38 +351,28 @@ const DevicePopup = ({
             )}
 
             <div>
-              <label className="block text-sm font-medium mb-1 text-white">Your Name:</label>
-              <Input
-                value={personName}
-                onChange={(e) => setPersonName(e.target.value)}
-                placeholder="Enter your name for tracking changes"
-                className="bg-gray-800 text-white border-gray-600"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium mb-1 text-white">Progress:</label>
-              <Progress value={calculateProgress()} className="w-full" />
-              <p className="text-xs text-gray-400 mt-1">
+              <label className="block text-xs font-medium mb-0.5 text-white">Progress:</label>
+              <Progress value={calculateProgress()} className="w-full h-2" />
+              <p className="text-xs text-gray-400 mt-0.5">
                 {Math.round(calculateProgress())}% complete
               </p>
             </div>
 
-            <div className="flex space-x-2">
-              <Button size="sm" onClick={handleSave}>
-                <Save className="h-4 w-4 mr-1" />
+            <div className="flex space-x-2 flex-wrap gap-y-1">
+              <Button size="sm" onClick={handleSave} className="h-8 text-xs">
+                <Save className="h-3 w-3 mr-1" />
                 Save
               </Button>
 
-              <Button variant="outline" size="sm" onClick={() => setShowHistory(!showHistory)}>
-                <History className="h-4 w-4 mr-1" />
+              <Button variant="outline" size="sm" onClick={() => setShowHistory(!showHistory)} className="h-8 text-xs">
+                <History className="h-3 w-3 mr-1" />
                 {showHistory ? 'Hide History' : 'Show History'}
               </Button>
 
               <AlertDialog>
                 <AlertDialogTrigger asChild>
-                  <Button variant="destructive" size="sm">
-                    <Trash2 className="h-4 w-4 mr-1" />
+                  <Button variant="destructive" size="sm" className="h-8 text-xs">
+                    <Trash2 className="h-3 w-3 mr-1" />
                     Remove
                   </Button>
                 </AlertDialogTrigger>
@@ -360,44 +393,131 @@ const DevicePopup = ({
               </AlertDialog>
             </div>
           </div>
+        </div>
 
-          {/* History Section */}
-          {showHistory && (
-            <div className="w-80 border-l border-gray-600 pl-4">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-white">History</h3>
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
-                  onClick={() => setShowHistory(false)}
-                  className="h-6 w-6 p-0 text-white hover:bg-gray-700"
-                  title="Close history"
-                >
-                  <ArrowLeft className="h-4 w-4" />
-                </Button>
-              </div>
-              
-              <div className="space-y-2 overflow-y-auto max-h-80">
+        {/* History Section (Inline List + Details) */}
+        {showHistory && (
+          <div className="mt-2 border-t border-gray-700 pt-2">
+            <div className="flex gap-4">
+              {/* Left: List */}
+              <div className="w-1/3 bg-gray-900 border border-gray-700 rounded p-2 max-h-[50vh] overflow-y-auto">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-semibold text-white">History</h3>
+                  <Button variant="ghost" size="sm" onClick={() => setShowHistory(false)} className="h-6 w-6 p-0 text-white hover:bg-gray-700">
+                    <ArrowLeft className="h-4 w-4" />
+                  </Button>
+                </div>
+
                 {historyItems && historyItems.length > 0 ? (
-                  historyItems.map((item, index) => (
-                    <Card key={index} className="cursor-pointer hover:bg-gray-700 bg-gray-800 border-gray-600" onClick={() => onHistoryItemClick && onHistoryItemClick(item)}>
-                      <CardContent className="p-3">
-                        <p className="font-medium text-white">{item.deviceId}</p>
-                        <p className="text-sm text-gray-400">
-                          {item.inDate} {item.inTime} → {item.outDate} {item.outTime}
-                        </p>
-                        <p className="text-xs text-gray-500">
-                                                  <div className="text-sm text-gray-300">
-                          {item.duration_hours || 0}h {item.duration_minutes || 0}m {item.duration_seconds || 0}s | Placed by: {item.placedBy} | Removed by: {item.removedBy}
-                        </div>
-                        </p>
-                      </CardContent>
-                    </Card>
-                  ))
+                  historyItems.map((item, index) => {
+                    const isSelected = index === historySelectedIndex;
+                    return (
+                      <div
+                        key={index}
+                        onClick={() => {
+                          setHistorySelectedIndex(index);
+                          setSelectedHistoryLocal({
+                            deviceId: item.deviceId || item.device_id,
+                            inDate: item.inDate || item.in_date,
+                            inTime: item.inTime || item.in_time,
+                            out_date: item.out_date || item.outDate,
+                            out_time: item.out_time || item.outTime,
+                            removed_at: item.removed_at,
+                            hours: item.hours || 0,
+                            minutes: item.minutes || 0,
+                            seconds: item.seconds || 0,
+                            duration_hours: item.duration_hours || 0,
+                            duration_minutes: item.duration_minutes || 0,
+                            duration_seconds: item.duration_seconds || 0,
+                            actual_hours_stayed: item.actual_hours_stayed || item.actualHoursStayed,
+                            placedBy: item.created_by || item.createdBy || item.placedBy,
+                            removedBy: item.removed_by || item.removedBy,
+                            removalType: item.removalType || item.removal_type,
+                            isEarlyRemoval: item.isEarlyRemoval || item.is_early_removal
+                          });
+                        }}
+                        className={`cursor-pointer p-2 mb-1 rounded border ${isSelected ? 'bg-green-700 border-green-600' : 'bg-gray-800 border-gray-700'} text-white`}
+                      >
+                        <div className="font-medium text-sm">{item.deviceId}</div>
+                        <div className="text-xs text-gray-300">{item.inDate} {item.inTime} → {item.outDate} {item.outTime}</div>
+                      </div>
+                    );
+                  })
                 ) : (
                   <p className="text-gray-400">No history available</p>
                 )}
               </div>
+
+              {/* Right: Details pane */}
+              <div className="flex-1 bg-gray-900 border border-gray-700 rounded p-4 max-h-[50vh] overflow-y-auto">
+                {selectedHistoryLocal ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-sm font-semibold text-white">{selectedHistoryLocal.deviceId}</h4>
+                      <div className="text-xs text-gray-400">Status: ✅ Completed</div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs text-gray-400">In Date</label>
+                        <div className="text-white text-sm">{selectedHistoryLocal.inDate || 'N/A'}</div>
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-400">In Time</label>
+                        <div className="text-white text-sm">{selectedHistoryLocal.inTime || 'N/A'}</div>
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-400">Out Date</label>
+                        <div className="text-white text-sm">{selectedHistoryLocal.out_date || 'N/A'}</div>
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-400">Out Time</label>
+                        <div className="text-white text-sm">{selectedHistoryLocal.out_time || 'N/A'}</div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs text-gray-400">Planned Time</label>
+                      <div className="text-white text-sm">{(selectedHistoryLocal.hours || 0)}h {(selectedHistoryLocal.minutes || 0)}m {(selectedHistoryLocal.seconds || 0)}s</div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs text-gray-400">Actual Time Stayed</label>
+                      <div className="text-white text-sm">{selectedHistoryLocal.actual_hours_stayed ? selectedHistoryLocal.actual_hours_stayed : `${selectedHistoryLocal.duration_hours || 0}h ${selectedHistoryLocal.duration_minutes || 0}m ${selectedHistoryLocal.duration_seconds || 0}s`}</div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs text-gray-400">Placed By</label>
+                        <div className="text-white text-sm">{selectedHistoryLocal.placedBy || 'Unknown'}</div>
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-400">Removed By</label>
+                        <div className="text-white text-sm">{selectedHistoryLocal.removedBy || 'Unknown'}</div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs text-gray-400">Removal Type</label>
+                      <div className="text-white text-sm">{(selectedHistoryLocal.removalType === 'automatic') ? 'Automatic (Expired)' : 'Manual'}{selectedHistoryLocal.isEarlyRemoval ? ' - Early Removal' : ''}</div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-gray-400">Select a history item to view details</div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Graph Section - Always visible below input form */}
+        <div className="mt-2 border-t border-gray-700 pt-2">
+          <h3 className="text-sm font-semibold text-white mb-2">Performance Over Time</h3>
+          {editableData.id && editableData.id.trim() !== '' ? (
+            <DevicePerformanceChart deviceId={editableData.id} />
+          ) : (
+            <div className="text-gray-400 text-center py-8">
+              Enter a Device ID to view performance data
             </div>
           )}
         </div>
@@ -456,7 +576,7 @@ const HistoryDevicePopup = ({ open, onOpenChange, deviceData }) => {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl bg-black text-white border border-gray-600 [&>button]:hidden">
+    <DialogContent className="max-w-2xl min-h-[60vh] max-h-[90vh] bg-black text-white border border-gray-600 [&>button]:hidden">
         <DialogHeader>
           <DialogTitle className="flex items-center justify-between text-white">
             History Device Information
