@@ -751,9 +751,17 @@ export default function StabilityDashboard() {
     <div className="min-h-screen bg-background">
       {/* Header */}
       <div className="border-b border-border p-4">
-        <div>
-          <h1 className="text-2xl font-bold">Stability Dashboard</h1>
-          <p className="text-muted-foreground">Real workspace testing environment monitoring</p>
+        <div className="flex items-center space-x-4">
+          {/* Logo */}
+          <img 
+            src="/logo.png" 
+            alt="Rayleigh Solar Tech" 
+            className="h-12 w-auto object-contain"
+          />
+          <div>
+            <h1 className="text-2xl font-bold">Stability Dashboard</h1>
+            <p className="text-muted-foreground">Real workspace testing environment monitoring</p>
+          </div>
         </div>
         {error && (
           <div className="mt-2 p-2 bg-yellow-100 border border-yellow-400 text-yellow-700 rounded">

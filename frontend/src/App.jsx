@@ -17,6 +17,9 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import UploadData from "@/components/UploadData"
 import Analysis from "@/components/Analysis"
 import StabilityDashboard from "@/components/StabilityDashboard"
+import Login from "@/components/Login"
+import Signup from "@/components/Signup"
+import { checkAuthentication, logout as azureLogout } from "@/lib/azureAuth"
 
 // Sample data
 const processData = [
@@ -118,6 +121,11 @@ const repeatabilityData = [
 ]
 
 export default function ProductionDashboard() {
+  // Authentication state
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true)
+  const [showSignup, setShowSignup] = useState(false)
+
   // State for API data
   const [todayIssues, setTodayIssues] = useState([])
   const [yesterdayIssues, setYesterdayIssues] = useState([])
@@ -140,11 +148,28 @@ export default function ProductionDashboard() {
   const [showOnlyIncomplete, setShowOnlyIncomplete] = useState(false)
   const [showOnlyIncompleteSafety, setShowOnlyIncompleteSafety] = useState(false)
 
+  // Check authentication on mount
+  useEffect(() => {
+    const checkAuth = async () => {
+      // This works for both local (localStorage) and Azure SWA (/.auth/me)
+      const isAuth = await checkAuthentication()
+      setIsAuthenticated(isAuth)
+      setIsCheckingAuth(false)
+      // If not authenticated, we don't need to show loading spinner
+      if (!isAuth) {
+        setLoading(false)
+      }
+    }
+    checkAuth()
+  }, [])
+
   // Load data from API
   useEffect(() => {
-    loadData()
-    checkApiHealth()
-  }, [])
+    if (isAuthenticated) {
+      loadData()
+      checkApiHealth()
+    }
+  }, [isAuthenticated])
 
   const checkApiHealth = async () => {
     try {
@@ -449,7 +474,7 @@ export default function ProductionDashboard() {
     )
   }
 
-  return (
+  const mainApp = (
     <Router>
       <Routes>
         <Route path="/" element={
@@ -458,6 +483,12 @@ export default function ProductionDashboard() {
       <nav className="border-b border-border bg-card">
         <div className="flex h-16 items-center px-6">
           <div className="flex items-center space-x-4">
+            {/* Logo */}
+            <img 
+              src="/logo.png" 
+              alt="Rayleigh Solar Tech" 
+              className="h-10 w-auto object-contain"
+            />
             <h1 className="text-xl font-semibold text-foreground">Production Dashboard</h1>
             {/* API Status Indicator */}
             <div className="flex items-center space-x-2">
@@ -504,6 +535,22 @@ export default function ProductionDashboard() {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+          </div>
+
+          {/* User section with logout */}
+          <div className="ml-auto flex items-center space-x-4">
+            <span className="text-sm text-muted-foreground">
+              {localStorage.getItem('userName') || localStorage.getItem('userEmail') || 'User'}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                azureLogout()
+              }}
+            >
+              Logout
+            </Button>
           </div>
         </div>
         {error && (
@@ -977,4 +1024,33 @@ export default function ProductionDashboard() {
       </Routes>
     </Router>
   )
+
+  // Show login page if not authenticated
+  if (isCheckingAuth) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!isAuthenticated) {
+    if (showSignup) {
+      return (
+        <Signup 
+          onSignupSuccess={() => {
+            setShowSignup(false);
+          }}
+          onBackToLogin={() => setShowSignup(false)}
+        />
+      );
+    }
+    return <Login onLogin={setIsAuthenticated} onSignupClick={() => setShowSignup(true)} />
+  }
+
+  // Show main app if authenticated
+  return mainApp
 }

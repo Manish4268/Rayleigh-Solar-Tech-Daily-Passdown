@@ -54,7 +54,15 @@ const Analysis = () => {
   return (
     <div className="container mx-auto p-6 space-y-6">
       <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold">Excel Data Analysis</h1>
+        <div className="flex items-center space-x-4">
+          {/* Logo */}
+          <img 
+            src="/logo.png" 
+            alt="Rayleigh Solar Tech" 
+            className="h-12 w-auto object-contain"
+          />
+          <h1 className="text-3xl font-bold">Excel Data Analysis</h1>
+        </div>
         <div className="text-sm text-muted-foreground">
           {selectedFile && `Selected: ${selectedFile.name}`}
         </div>

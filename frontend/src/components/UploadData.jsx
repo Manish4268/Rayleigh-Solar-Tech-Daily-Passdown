@@ -89,6 +89,12 @@ export default function UploadDataPage() {
       {/* Navbar */}
       <nav className="border-b border-border bg-card">
         <div className="flex h-16 items-center px-6">
+          {/* Logo */}
+          <img 
+            src="/logo.png" 
+            alt="Rayleigh Solar Tech" 
+            className="h-10 w-auto object-contain mr-4"
+          />
           <Link to="/">
             <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground">
               <ArrowLeft className="h-4 w-4 mr-2" />
