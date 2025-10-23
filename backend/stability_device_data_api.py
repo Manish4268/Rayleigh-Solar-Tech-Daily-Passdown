@@ -7,15 +7,16 @@ import pandas as pd
 import os
 from pathlib import Path
 from flask import jsonify
+import requests
+from io import StringIO
 
 class StabilityDeviceDataAPI:
     """API for stability device performance data"""
     
     def __init__(self):
-        # Path to the CSV files (in root directory)
-        self.root_dir = Path(__file__).parent.parent
-        self.fr_csv_path = self.root_dir / "device_FR_averaged.csv"
-        self.t80_csv_path = self.root_dir / "T80_summary.csv"
+        # Azure configuration for CSV files
+        self.azure_container_url = os.getenv('AZURE_CONTAINER_URL')
+        self.azure_container_sas = os.getenv('AZURE_CONTAINER_SAS')
         
         # Cache for dataframes
         self._fr_df = None
@@ -26,36 +27,39 @@ class StabilityDeviceDataAPI:
             'PCE', 'Max_Power', 'FF', 'J_sc', 'V_oc', 'HI', 'R_shunt', 'R_series'
         ]
     
-    def _load_fr_data(self):
-        """Load device_FR_averaged.csv with caching"""
-        if self._fr_df is None:
-            try:
-                if not self.fr_csv_path.exists():
-                    print(f"⚠️ device_FR_averaged.csv not found at {self.fr_csv_path}")
-                    return pd.DataFrame()
-                
-                self._fr_df = pd.read_csv(self.fr_csv_path)
-                print(f"✅ Loaded device_FR_averaged.csv: {len(self._fr_df)} rows")
-            except Exception as e:
-                print(f"❌ Error loading device_FR_averaged.csv: {e}")
+    def _download_csv_from_azure(self, filename):
+        """Download CSV file from Azure Blob Storage"""
+        try:
+            if not self.azure_container_url or not self.azure_container_sas:
+                print(f"⚠️ Azure credentials not configured")
                 return pd.DataFrame()
-        
+            
+            # Construct blob URL with SAS token
+            blob_url = f"{self.azure_container_url}/{filename}?{self.azure_container_sas}"
+            
+            # Download the file
+            response = requests.get(blob_url)
+            response.raise_for_status()
+            
+            # Parse CSV
+            df = pd.read_csv(StringIO(response.text))
+            print(f"✅ Downloaded {filename} from Azure: {len(df)} rows")
+            return df
+            
+        except Exception as e:
+            print(f"❌ Error downloading {filename} from Azure: {e}")
+            return pd.DataFrame()
+    
+    def _load_fr_data(self):
+        """Load device_FR_averaged.csv from Azure with caching"""
+        if self._fr_df is None:
+            self._fr_df = self._download_csv_from_azure("device_FR_averaged.csv")
         return self._fr_df
     
     def _load_t80_data(self):
-        """Load T80_summary.csv with caching"""
+        """Load T80_summary.csv from Azure with caching"""
         if self._t80_df is None:
-            try:
-                if not self.t80_csv_path.exists():
-                    print(f"⚠️ T80_summary.csv not found at {self.t80_csv_path}")
-                    return pd.DataFrame()
-                
-                self._t80_df = pd.read_csv(self.t80_csv_path)
-                print(f"✅ Loaded T80_summary.csv: {len(self._t80_df)} rows")
-            except Exception as e:
-                print(f"❌ Error loading T80_summary.csv: {e}")
-                return pd.DataFrame()
-        
+            self._t80_df = self._download_csv_from_azure("T80_summary.csv")
         return self._t80_df
     
     def get_device_data(self, device_id):
@@ -79,8 +83,16 @@ class StabilityDeviceDataAPI:
                     'error': 'Device FR data not available'
                 }), 404
             
-            # Filter data for this device
-            device_data = fr_df[fr_df['Device'] == device_id].copy()
+            # Filter data for this device - check both 'Device' and 'Device_ID' columns
+            if 'Device' in fr_df.columns:
+                device_data = fr_df[fr_df['Device'] == device_id].copy()
+            elif 'Device_ID' in fr_df.columns:
+                device_data = fr_df[fr_df['Device_ID'] == device_id].copy()
+            else:
+                return jsonify({
+                    'success': False,
+                    'error': 'Device column not found in CSV'
+                }), 404
             
             if device_data.empty:
                 return jsonify({
@@ -148,7 +160,13 @@ class StabilityDeviceDataAPI:
                     'error': 'No device data available'
                 }), 404
             
-            devices = sorted(fr_df['Device'].unique().tolist())
+            # Check for both 'Device' and 'Device_ID' columns
+            if 'Device' in fr_df.columns:
+                devices = sorted(fr_df['Device'].unique().tolist())
+            elif 'Device_ID' in fr_df.columns:
+                devices = sorted(fr_df['Device_ID'].unique().tolist())
+            else:
+                devices = []
             
             return jsonify({
                 'success': True,
@@ -162,6 +180,43 @@ class StabilityDeviceDataAPI:
                 'success': False,
                 'error': str(e)
             }), 500
+    
+    def check_device_t80_status(self, device_id):
+        """Check if a device has reached T80"""
+        try:
+            t80_df = self._load_t80_data()
+            
+            if t80_df.empty:
+                # T80 summary doesn't exist or is empty - this is normal
+                return {'has_t80': False}
+            
+            # Check both 'Device_ID' and 'Device' columns for compatibility
+            if 'Device' in t80_df.columns:
+                device_t80 = t80_df[t80_df['Device'] == device_id]
+            elif 'Device_ID' in t80_df.columns:
+                device_t80 = t80_df[t80_df['Device_ID'] == device_id]
+            else:
+                print(f"⚠️ T80 summary has no Device_ID or Device column")
+                return {'has_t80': False}
+            
+            if device_t80.empty:
+                # Device not in T80 summary - hasn't reached T80 yet
+                return {'has_t80': False}
+            
+            # Device found in T80 summary - it has reached T80
+            t80_row = device_t80.iloc[0]
+            return {
+                'has_t80': bool(t80_row['Reached_T80']) if 'Reached_T80' in t80_row and pd.notna(t80_row['Reached_T80']) else False,
+                't80_hours': float(t80_row['T80_hours']) if 'T80_hours' in t80_row and pd.notna(t80_row['T80_hours']) else None,
+                'initial_pce': float(t80_row['Baseline_PCE']) if 'Baseline_PCE' in t80_row and pd.notna(t80_row['Baseline_PCE']) else None,
+                't80_pce': float(t80_row['Threshold_PCE']) if 'Threshold_PCE' in t80_row and pd.notna(t80_row['Threshold_PCE']) else None
+            }
+            
+        except Exception as e:
+            print(f"❌ Error checking T80 status for {device_id}: {e}")
+            import traceback
+            traceback.print_exc()
+            return {'has_t80': False}
     
     def refresh_data(self):
         """Clear cache and reload data from files"""

@@ -63,15 +63,35 @@ class StabilityDeviceModel:
         self.collection = db_manager.db.stability_devices
     
     def get_all(self):
-        """Get all active devices"""
+        """Get all active devices with T80 status"""
         try:
             devices = list(self.collection.find({"status": {"$ne": "removed"}}))
-            # Convert ObjectId to string
+            
+            # Import device data API to check T80 status
+            try:
+                from stability_device_data_api import get_device_data_api
+                device_data_api = get_device_data_api()
+            except:
+                device_data_api = None
+            
+            # Convert ObjectId to string and add T80 status
             for device in devices:
                 device['_id'] = str(device['_id'])
+                
+                # Check T80 status if device has deviceId
+                if device_data_api and 'deviceId' in device:
+                    t80_status = device_data_api.check_device_t80_status(device['deviceId'])
+                    device['has_t80'] = t80_status.get('has_t80', False)
+                    if t80_status.get('has_t80'):
+                        device['t80_info'] = t80_status
+                else:
+                    device['has_t80'] = False
+            
             return devices
         except Exception as e:
             print(f"Error getting devices: {e}")
+            import traceback
+            traceback.print_exc()
             return []
     
     def get_by_id(self, device_id):

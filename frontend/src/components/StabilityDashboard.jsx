@@ -27,15 +27,16 @@ const initialGridData = {
 const DeviceSlot = ({ sectionKey, subsectionKey, row, col, device, onDeviceClick }) => {
   const slotKey = `${row}-${col}`;
   const hasDevice = !!device;
+  const hasT80 = device?.has_t80 || false;
 
   return (
     <div
       onClick={() => onDeviceClick(sectionKey, subsectionKey, row, col, device)}
       className={`
         w-8 h-8 border-2 border-gray-300 cursor-pointer transition-all duration-200 hover:scale-105
-        ${hasDevice ? 'bg-green-500 hover:bg-green-600' : 'bg-gray-300 hover:bg-gray-400'}
+        ${hasDevice ? (hasT80 ? 'bg-blue-500 hover:bg-blue-600' : 'bg-green-500 hover:bg-green-600') : 'bg-gray-300 hover:bg-gray-400'}
       `}
-      title={hasDevice ? `Device: ${device.id}` : 'Empty slot'}
+      title={hasDevice ? (hasT80 ? `Device: ${device.id} (T80 Reached)` : `Device: ${device.id}`) : 'Empty slot'}
     />
   );
 };
@@ -729,13 +730,14 @@ export default function StabilityDashboard() {
       setIsExistingDevice(true);
       
       // Map the device data to the expected format for DevicePopup
+      // MongoDB device has: deviceId, inDate, inTime, timeHours, etc.
       const mappedDevice = {
-        id: device.id,
-        inDate: device.inDate,
-        inTime: device.inTime || '00:00', // Ensure we have inTime
-        outDate: device.outDate,
-        time: device.time,
-        hours: device.duration_hours || 0,
+        id: device.deviceId || device.id || '',
+        inDate: device.inDate || '',
+        inTime: device.inTime || '00:00',
+        outDate: device.outDate || '',
+        time: device.timeHours || device.time || 0,
+        hours: device.duration_hours || Math.floor(device.timeHours || 0),
         minutes: device.duration_minutes || 0,
         seconds: device.duration_seconds || 0
       };

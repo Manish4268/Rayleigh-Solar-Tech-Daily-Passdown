@@ -211,6 +211,26 @@ def process_expired_devices():
     """Process expired devices automatically and return details"""
     return stability_api.process_expired_devices()
 
+# ==================== STABILITY DEVICE DATA ENDPOINTS ====================
+
+from stability_device_data_api import get_device_data_api
+device_data_api = get_device_data_api()
+
+@app.route('/api/stability/device-data/<device_id>', methods=['GET'])
+def get_device_performance_data(device_id):
+    """Get performance time series data for a specific device"""
+    return device_data_api.get_device_data(device_id)
+
+@app.route('/api/stability/available-devices', methods=['GET'])
+def get_available_devices():
+    """Get list of all devices with performance data"""
+    return device_data_api.get_available_devices()
+
+@app.route('/api/stability/refresh-data', methods=['POST'])
+def refresh_device_data():
+    """Refresh device data from CSV files"""
+    return device_data_api.refresh_data()
+
 # ==================== ANALYSIS ENDPOINTS ====================
 
 @app.route('/api/analysis/process', methods=['POST'])
@@ -396,6 +416,52 @@ def download_analysis_results():
 
 # ==================== START SERVER ====================
 
+def auto_remove_expired_devices_on_startup():
+    """Automatically remove expired devices when server starts"""
+    try:
+        print("\n🔍 Checking for expired devices...")
+        from stability_models import StabilityDatabaseManager, StabilityDeviceModel
+        
+        stability_db = StabilityDatabaseManager()
+        if not stability_db.connected:
+            print("⚠️  Could not connect to database for expired device check")
+            return
+        
+        device_model = StabilityDeviceModel(stability_db)
+        expired_devices = device_model.check_expired_devices()
+        
+        if not expired_devices:
+            print("✅ No expired devices found")
+            stability_db.close_connection()
+            return
+        
+        print(f"⏰ Found {len(expired_devices)} expired device(s)")
+        removed_count = 0
+        
+        for device in expired_devices:
+            try:
+                print(f"   🗑️  Removing {device['device_id']} (expired {device['hours_over']:.2f}h ago)")
+                success = device_model.soft_delete(
+                    device['section_key'],
+                    device['subsection_key'],
+                    device['row'],
+                    device['col'],
+                    'System'
+                )
+                if success:
+                    removed_count += 1
+                    print(f"   ✅ Successfully removed {device['device_id']}")
+                else:
+                    print(f"   ❌ Failed to remove {device['device_id']}")
+            except Exception as e:
+                print(f"   ❌ Error removing {device['device_id']}: {e}")
+        
+        stability_db.close_connection()
+        print(f"🎯 Auto-removal complete: {removed_count}/{len(expired_devices)} devices removed\n")
+        
+    except Exception as e:
+        print(f"⚠️  Error during startup expired device check: {e}\n")
+
 if __name__ == '__main__':
     print("🚀 Starting Modular Passdown API Server")
     print("=" * 60)
@@ -414,4 +480,8 @@ if __name__ == '__main__':
     print("🔬 Stability Grid: GET /api/stability/grid-data")
     print("⚗️ Device Management: /api/stability/devices")
     print("=" * 60)
+    
+    # Auto-remove expired devices on startup
+    auto_remove_expired_devices_on_startup()
+    
     app.run(host='0.0.0.0', port=7071, debug=False)
