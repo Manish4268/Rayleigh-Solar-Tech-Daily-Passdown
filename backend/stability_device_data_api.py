@@ -120,17 +120,29 @@ class StabilityDeviceDataAPI:
                 
                 time_series.append(data_point)
             
-            # Get T80 info if available
-            t80_info = {}
+            # Get T80 info if available from T80 summary
+            t80_info = {'has_t80': False}
             if not t80_df.empty:
-                t80_row = t80_df[t80_df['Device'] == device_id]
+                # Check for device in T80 summary
+                if 'Device' in t80_df.columns:
+                    t80_row = t80_df[t80_df['Device'] == device_id]
+                elif 'Device_ID' in t80_df.columns:
+                    t80_row = t80_df[t80_df['Device_ID'] == device_id]
+                else:
+                    t80_row = pd.DataFrame()
+                
                 if not t80_row.empty:
                     t80_row = t80_row.iloc[0]
+                    # Check if device has reached T80
+                    reached = False
+                    if 'Reached_T80' in t80_row:
+                        reached = bool(t80_row['Reached_T80']) if pd.notna(t80_row['Reached_T80']) else False
+                    
                     t80_info = {
-                        'reached_t80': bool(t80_row['Reached_T80']),
-                        't80_hours': float(t80_row['T80_hours']) if pd.notna(t80_row['T80_hours']) else None,
-                        'baseline_pce': float(t80_row['Baseline_PCE']) if pd.notna(t80_row['Baseline_PCE']) else None,
-                        'threshold_pce': float(t80_row['Threshold_PCE']) if pd.notna(t80_row['Threshold_PCE']) else None
+                        'has_t80': reached,
+                        't80_hours': float(t80_row['T80_hours']) if 'T80_hours' in t80_row and pd.notna(t80_row['T80_hours']) else None,
+                        'initial_pce': float(t80_row['Baseline_PCE']) if 'Baseline_PCE' in t80_row and pd.notna(t80_row['Baseline_PCE']) else None,
+                        't80_pce': float(t80_row['Threshold_PCE']) if 'Threshold_PCE' in t80_row and pd.notna(t80_row['Threshold_PCE']) else None
                     }
             
             return jsonify({

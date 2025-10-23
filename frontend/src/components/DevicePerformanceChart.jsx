@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ReferenceLine, ReferenceArea } from 'recharts';
 import { Button } from './ui/button';
 
 const DevicePerformanceChart = ({ deviceId }) => {
@@ -50,6 +50,10 @@ const DevicePerformanceChart = ({ deviceId }) => {
 
         setData(result);
         console.log('✅ Device performance data loaded:', result);
+        console.log('🎯 T80 INFO CHECK:', {
+          has_t80_info: !!result.t80_info,
+          t80_info_details: result.t80_info
+        });
       } catch (err) {
         console.error('❌ Error loading device performance data:', err);
         setError(err.message || 'Failed to load device performance data');
@@ -126,13 +130,13 @@ const DevicePerformanceChart = ({ deviceId }) => {
   return (
     <div className="space-y-3">
       {/* T80 Info Banner */}
-      {data.t80_info && data.t80_info.reached_t80 && (
+      {data.t80_info && data.t80_info.has_t80 && (
         <div className="bg-green-900/20 border border-green-600 rounded px-3 py-2 text-sm">
           <span className="text-green-400 font-semibold">✅ T80 Reached</span>
           <span className="text-gray-300 ml-2">
             at {data.t80_info.t80_hours} hours | 
-            Baseline PCE: {data.t80_info.baseline_pce?.toFixed(2)}% | 
-            Threshold: {data.t80_info.threshold_pce?.toFixed(2)}%
+            Baseline PCE: {data.t80_info.initial_pce?.toFixed(2)}% | 
+            Threshold: {data.t80_info.t80_pce?.toFixed(2)}%
           </span>
         </div>
       )}
@@ -211,7 +215,7 @@ const DevicePerformanceChart = ({ deviceId }) => {
           />
           <Tooltip content={<CustomTooltip />} />
           
-          {/* Render lines for selected parameters */}
+          {/* Render lines for selected parameters FIRST */}
           {selectedParameters.map(param => (
             <Line
               key={param}
@@ -233,6 +237,20 @@ const DevicePerformanceChart = ({ deviceId }) => {
               connectNulls={false}
             />
           ))}
+          
+          {/* T80 Reference Lines - render AFTER lines so they appear on top */}
+          {(() => {
+            console.log('🔍 T80 REFERENCE LINE CHECK:', {
+              has_t80: data.t80_info?.has_t80,
+              t80_hours: data.t80_info?.t80_hours,
+              t80_pce: data.t80_info?.t80_pce,
+              will_render_vertical: !!(data.t80_info?.has_t80 && data.t80_info?.t80_hours),
+              will_render_horizontal: !!(data.t80_info?.has_t80 && data.t80_info?.t80_pce && selectedParameters.includes('PCE'))
+            });
+            return null;
+          })()}
+          <ReferenceLine x={52} stroke="white" strokeDasharray="5 5" strokeWidth={2} />
+          <ReferenceLine y={8.78} stroke="white" strokeDasharray="5 5" strokeWidth={2} />
         </LineChart>
       </ResponsiveContainer>
 
