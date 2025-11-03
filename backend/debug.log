@@ -1,0 +1,16 @@
+🗑️ DELETE request: section='LS w/Temp', subsection='25C', row=0, col=0, removedBy='test_user'
+🗑️ soft_delete called: section='LS w/Temp', subsection='25C', row=0, col=0
+🔍 get_by_position query: section='LS w/Temp', subsection='25C', row=0, col=0
+✅ Found device: B25-34-S005-A3
+📦 Device found for deletion: B25-34-S005-A3
+🔄 Updating device with query: {'sectionKey': 'LS w/Temp', 'subsectionKey': '25C', 'row': 0, 'col': 0, 'status': {'$ne': 'removed'}}
+🗑️ DELETE result: success=True
+🗑️ DELETE response: {'success': True, 'message': 'Device removed successfully'}
+🗑️ DELETE request: section='LS w/Temp', subsection='25C', row=0, col=1, removedBy='fewfew'
+🗑️ soft_delete called: section='LS w/Temp', subsection='25C', row=0, col=1
+🔍 get_by_position query: section='LS w/Temp', subsection='25C', row=0, col=1
+✅ Found device: sdvdfvdfvdf
+📦 Device found for deletion: sdvdfvdfvdf
+🔄 Updating device with query: {'sectionKey': 'LS w/Temp', 'subsectionKey': '25C', 'row': 0, 'col': 1, 'status': {'$ne': 'removed'}}
+🗑️ DELETE result: success=True
+🗑️ DELETE response: {'success': True, 'message': 'Device removed successfully'}

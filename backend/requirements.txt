@@ -1,6 +1,12 @@
-# Essential dependencies for Passdown App
-azure-functions==1.15.0
+# Essential dependencies for Passdown App - Clean Version
+Flask==3.0.0
+Flask-CORS==4.0.0
 pymongo==4.6.0
 python-dotenv==1.0.0
-flask==3.0.0
-flask-cors==4.0.0
+certifi==2023.7.22
+requests==2.31.0
+
+# Data Analysis dependencies
+pandas==2.1.4
+numpy==1.24.3
+openpyxl==3.1.2

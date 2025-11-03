@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { BrowserRouter as Router, Routes, Route, Link } from "react-router-dom"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -8,7 +9,17 @@ import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
 import { Plus, Menu, Trash2, Edit } from "lucide-react"
-import { todayAPI, yesterdayAPI, safetyAPI, kudosAPI, healthAPI } from "@/lib/api"
+import { todayAPI, yesterdayAPI, safetyAPI, kudosAPI, healthAPI, resetAPI } from "@/lib/api"
+import ParameterChart from "@/components/ParameterChart"
+import DeviceYieldChart from "@/components/DeviceYieldChart"
+import IVRepeatabilityChart from "@/components/IVRepeatabilityChart"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import UploadData from "@/components/UploadData"
+import Analysis from "@/components/Analysis"
+import StabilityDashboard from "@/components/StabilityDashboard"
+import Login from "@/components/Login"
+import Signup from "@/components/Signup"
+import { checkAuthentication, logout as azureLogout } from "@/lib/azureAuth"
 
 // Sample data
 const processData = [
@@ -91,17 +102,6 @@ const todayIssues = [
 ]
 
 // Chart data
-const pceData = [
-  { batch: "B1", pce: 85 },
-  { batch: "B2", pce: 88 },
-  { batch: "B3", pce: 92 },
-  { batch: "B4", pce: 87 },
-  { batch: "B5", pce: 94 },
-  { batch: "B6", pce: 91 },
-  { batch: "B7", pce: 89 },
-  { batch: "B8", pce: 96 },
-]
-
 const yieldData = [
   { time: "00:00", yield: 97.2 },
   { time: "04:00", yield: 97.8 },
@@ -121,6 +121,11 @@ const repeatabilityData = [
 ]
 
 export default function ProductionDashboard() {
+  // Authentication state
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true)
+  const [showSignup, setShowSignup] = useState(false)
+
   // State for API data
   const [todayIssues, setTodayIssues] = useState([])
   const [yesterdayIssues, setYesterdayIssues] = useState([])
@@ -141,12 +146,30 @@ export default function ProductionDashboard() {
   const [isAddingTodayIssue, setIsAddingTodayIssue] = useState(false)
 
   const [showOnlyIncomplete, setShowOnlyIncomplete] = useState(false)
+  const [showOnlyIncompleteSafety, setShowOnlyIncompleteSafety] = useState(false)
+
+  // Check authentication on mount
+  useEffect(() => {
+    const checkAuth = async () => {
+      // This works for both local (localStorage) and Azure SWA (/.auth/me)
+      const isAuth = await checkAuthentication()
+      setIsAuthenticated(isAuth)
+      setIsCheckingAuth(false)
+      // If not authenticated, we don't need to show loading spinner
+      if (!isAuth) {
+        setLoading(false)
+      }
+    }
+    checkAuth()
+  }, [])
 
   // Load data from API
   useEffect(() => {
-    loadData()
-    checkApiHealth()
-  }, [])
+    if (isAuthenticated) {
+      loadData()
+      checkApiHealth()
+    }
+  }, [isAuthenticated])
 
   const checkApiHealth = async () => {
     try {
@@ -194,6 +217,7 @@ export default function ProductionDashboard() {
       setYesterdayIssues(mappedYesterdayData)
       setSafetyIssues(safetyData) // Load all safety issues, filtering handled in getFilteredSafetyIssues
       setKudosData(kudosEntries)
+      
       setError(null)
     } catch (err) {
       setError('Failed to load data: ' + err.message)
@@ -329,6 +353,20 @@ export default function ProductionDashboard() {
     }
   }
 
+  const handleResetTodayIssues = async () => {
+    if (window.confirm('Are you sure you want to reset Today\'s Issues? This will clear all standup items for a fresh start.')) {
+      try {
+        const result = await resetAPI.resetTodayIssues()
+        await loadTodayIssues() // Reload today issues
+        setError(null)
+        // Show success message briefly
+        alert(`✅ ${result.message || 'Today\'s Issues reset successfully!'}`)
+      } catch (err) {
+        setError('Failed to reset today\'s issues: ' + err.message)
+      }
+    }
+  }
+
   const handleDeleteYesterdayIssue = async (id) => {
     try {
       await yesterdayAPI.delete(id)
@@ -346,6 +384,22 @@ export default function ProductionDashboard() {
       await loadYesterdayIssues() // Reload only yesterday issues table
     } catch (err) {
       setError('Failed to update status: ' + err.message)
+    }
+  }
+
+  const handleToggleSafetyStatus = async (id, currentStatus) => {
+    try {
+      console.log('🔄 Toggling safety status:', { id, currentStatus });
+      const newStatus = currentStatus === 'Yes' ? 'No' : 'Yes'
+      console.log('📝 New status will be:', newStatus);
+      
+      const response = await safetyAPI.update(id, { done: newStatus })
+      console.log('✅ Update response:', response);
+      
+      await loadSafetyIssues() // Reload only safety issues table
+    } catch (err) {
+      console.error('❌ Toggle error:', err);
+      setError('Failed to update safety issue status: ' + err.message)
     }
   }
 
@@ -394,8 +448,19 @@ export default function ProductionDashboard() {
   }
 
   const getFilteredSafetyIssues = () => {
-    // Show last 10 safety issues for consistent scrolling experience
-    return safetyIssues.slice(-10)
+    // Show incomplete safety issues first, then completed ones (max 10 total)
+    const incomplete = safetyIssues.filter((issue) => (issue.done || "No") === "No")
+    const completed = safetyIssues.filter((issue) => (issue.done || "No") === "Yes")
+    
+    if (showOnlyIncompleteSafety) {
+      return incomplete.slice(-10) // Show last 10 incomplete only
+    }
+    
+    // Show incomplete first, then completed (total max 10)
+    const incompleteToShow = incomplete.slice(-10)
+    const completedToShow = completed.slice(-(10 - incompleteToShow.length))
+    
+    return [...incompleteToShow, ...completedToShow]
   }
 
   if (loading) {
@@ -409,12 +474,21 @@ export default function ProductionDashboard() {
     )
   }
 
-  return (
-    <div className="min-h-screen bg-background dark">
+  const mainApp = (
+    <Router>
+      <Routes>
+        <Route path="/" element={
+          <div className="min-h-screen bg-background dark">
       {/* Navbar */}
       <nav className="border-b border-border bg-card">
         <div className="flex h-16 items-center px-6">
           <div className="flex items-center space-x-4">
+            {/* Logo */}
+            <img 
+              src="/logo.png" 
+              alt="Rayleigh Solar Tech" 
+              className="h-10 w-auto object-contain"
+            />
             <h1 className="text-xl font-semibold text-foreground">Production Dashboard</h1>
             {/* API Status Indicator */}
             <div className="flex items-center space-x-2">
@@ -432,9 +506,50 @@ export default function ProductionDashboard() {
             <Button variant="ghost" onClick={loadData} className="text-muted-foreground hover:text-foreground">
               Refresh Data
             </Button>
-            <Button variant="ghost" className="text-muted-foreground hover:text-foreground">
-              <Menu className="h-4 w-4 mr-2" />
-              Explore
+            
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" className="text-muted-foreground hover:text-foreground">
+                  <Menu className="h-4 w-4 mr-2" />
+                  Explore
+                </Button>
+              </DropdownMenuTrigger>
+
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem asChild>
+                  <Link to="/stability" className="cursor-pointer">
+                    Stability
+                  </Link>
+                </DropdownMenuItem>
+
+                <DropdownMenuItem asChild>
+                  <Link to="/upload-data" className="cursor-pointer">
+                    Upload Data
+                  </Link>
+                </DropdownMenuItem>
+
+                <DropdownMenuItem asChild>
+                  <Link to="/analysis" className="cursor-pointer">
+                    Analysis
+                  </Link>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+
+          {/* User section with logout */}
+          <div className="ml-auto flex items-center space-x-4">
+            <span className="text-sm text-muted-foreground">
+              {localStorage.getItem('userName') || localStorage.getItem('userEmail') || 'User'}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                azureLogout()
+              }}
+            >
+              Logout
             </Button>
           </div>
         </div>
@@ -488,12 +603,20 @@ export default function ProductionDashboard() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Near Misses / Safety */}
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-balance">Near Misses / Safety</CardTitle>
-              <Button size="sm" onClick={() => setIsAddingIssue(true)} className="bg-primary hover:bg-primary/90">
-                <Plus className="h-4 w-4 mr-2" />
-                Add Issue
-              </Button>
+            <CardHeader>
+              <div className="flex flex-row items-center justify-between">
+                <CardTitle className="text-balance">Near Misses / Safety</CardTitle>
+                <Button size="sm" onClick={() => setIsAddingIssue(true)} className="bg-primary hover:bg-primary/90">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Issue
+                </Button>
+              </div>
+              <div className="flex items-center space-x-2 mt-2">
+                <Checkbox id="incomplete-safety-filter" checked={showOnlyIncompleteSafety} onCheckedChange={setShowOnlyIncompleteSafety} />
+                <label htmlFor="incomplete-safety-filter" className="text-xs text-muted-foreground">
+                  Show only incomplete issues
+                </label>
+              </div>
             </CardHeader>
             <CardContent>
                                 <div className="overflow-auto max-h-96 border border-gray-200 rounded">
@@ -501,27 +624,58 @@ export default function ProductionDashboard() {
                     <thead className="bg-gray-800 sticky top-0 z-10">
                       <tr className="border-b border-border">
                         <th className="text-left py-3 px-3 font-medium text-white text-sm bg-gray-800">Issue #</th>
-                        <th className="text-left py-3 px-3 font-medium text-white text-sm bg-gray-800">Description</th>
+                        <th className="text-left py-3 px-3 font-medium text-white text-sm bg-gray-800">Issue Description</th>
+                        <th className="text-left py-3 px-3 font-medium text-white text-sm bg-gray-800">Who Pointed Out</th>
+                        <th className="text-left py-3 px-3 font-medium text-white text-sm bg-gray-800">Action Required</th>
                         <th className="text-left py-3 px-3 font-medium text-white text-sm bg-gray-800">Done?</th>
-                        <th className="text-left py-3 px-3 font-medium text-white text-sm bg-gray-800">Who</th>
                         <th className="text-left py-3 px-2 font-medium text-white text-sm bg-gray-800">Date</th>
                         <th className="text-left py-3 px-2 font-medium text-white text-sm bg-gray-800">Actions</th>
                       </tr>
                     </thead>
                   <tbody>
                     {getFilteredSafetyIssues().map((row, index) => (
-                      <tr key={index} className={index % 2 === 0 ? "bg-muted/50" : ""}>
+                      <tr 
+                        key={row._id || index} 
+                        className={`${index % 2 === 0 ? "bg-muted/50" : ""} ${(row.done || "No") === "No" ? "bg-destructive/10" : ""}`}
+                      >
+                        <td className="py-2 px-3 text-sm font-medium">#{row.id || index + 1}</td>
                         <td className="py-2 px-3 text-sm">{row.issue}</td>
                         <td className="py-2 px-3 text-sm">{row.person}</td>
                         <td className="py-2 px-3 text-sm">{row.action}</td>
+                        <td className="py-2 px-3 text-sm">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleToggleSafetyStatus(row._id, row.done || "No")}
+                            className="p-0 h-auto"
+                          >
+                            <Badge
+                              variant={(row.done || "No") === "Yes" ? "secondary" : "destructive"}
+                              className={`cursor-pointer ${(row.done || "No") === "Yes" ? "bg-primary/10 text-primary" : ""}`}
+                            >
+                              {row.done || "No"}
+                            </Badge>
+                          </Button>
+                        </td>
                         <td className="py-2 px-2 text-sm text-muted-foreground">{row.date}</td>
+                        <td className="py-2 px-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDeleteSafetyIssue(row._id)}
+                            className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </td>
                       </tr>
                     ))}
                     {isAddingIssue && (
                       <tr className="bg-accent/50">
+                        <td className="py-2 px-3 text-sm text-muted-foreground">Auto</td>
                         <td className="py-2 px-3">
                           <Input
-                            placeholder="Issue description"
+                            placeholder="What was the issue/near miss?"
                             value={newSafetyIssue.issue}
                             onChange={(e) => setNewSafetyIssue({ ...newSafetyIssue, issue: e.target.value })}
                             className="h-8"
@@ -529,26 +683,42 @@ export default function ProductionDashboard() {
                         </td>
                         <td className="py-2 px-3">
                           <Input
-                            placeholder="Person name"
+                            placeholder="Who pointed it out?"
                             value={newSafetyIssue.person}
                             onChange={(e) => setNewSafetyIssue({ ...newSafetyIssue, person: e.target.value })}
                             className="h-8"
                           />
                         </td>
                         <td className="py-2 px-3">
-                          <div className="flex gap-2">
-                            <Input
-                              placeholder="Action taken"
-                              value={newSafetyIssue.action}
-                              onChange={(e) => setNewSafetyIssue({ ...newSafetyIssue, action: e.target.value })}
-                              className="h-8"
-                            />
-                            <Button size="sm" onClick={handleAddSafetyIssue} className="h-8">
+                          <Input
+                            placeholder="What action is required?"
+                            value={newSafetyIssue.action}
+                            onChange={(e) => setNewSafetyIssue({ ...newSafetyIssue, action: e.target.value })}
+                            className="h-8"
+                          />
+                        </td>
+                        <td className="py-2 px-3">
+                          <Badge variant="destructive" className="cursor-default">No</Badge>
+                        </td>
+                        <td className="py-2 px-2 text-sm text-muted-foreground">Today</td>
+                        <td className="py-2 px-2">
+                          <div className="flex gap-1">
+                            <Button size="sm" onClick={handleAddSafetyIssue} className="h-8 px-3">
                               Save
+                            </Button>
+                            <Button 
+                              size="sm" 
+                              variant="outline" 
+                              onClick={() => {
+                                setIsAddingIssue(false);
+                                setNewSafetyIssue({ issue: "", person: "", action: "" });
+                              }} 
+                              className="h-8 px-2"
+                            >
+                              Cancel
                             </Button>
                           </div>
                         </td>
-                        <td className="py-2 px-2 text-sm text-muted-foreground">12/23</td>
                       </tr>
                     )}
                   </tbody>
@@ -575,15 +745,26 @@ export default function ProductionDashboard() {
                       <th className="text-left py-3 px-3 font-medium text-white text-sm bg-gray-800">Action</th>
                       <th className="text-left py-3 px-3 font-medium text-white text-sm bg-gray-800">By Whom</th>
                       <th className="text-left py-3 px-2 font-medium text-white text-sm bg-gray-800">Date</th>
+                      <th className="text-left py-3 px-2 font-medium text-white text-sm bg-gray-800">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {getFilteredKudosData().map((row, index) => (
-                      <tr key={index} className={index % 2 === 0 ? "bg-muted/50" : ""}>
+                      <tr key={row._id || index} className={index % 2 === 0 ? "bg-muted/50" : ""}>
                         <td className="py-2 px-3 text-sm font-medium">{row.name}</td>
                         <td className="py-2 px-3 text-sm">{row.action}</td>
                         <td className="py-2 px-3 text-sm">{row.by_whom || ""}</td>
                         <td className="py-2 px-2 text-sm text-muted-foreground">{row.date}</td>
+                        <td className="py-2 px-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDeleteKudos(row._id)}
+                            className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </td>
                       </tr>
                     ))}
                     {isAddingKudos && (
@@ -612,10 +793,24 @@ export default function ProductionDashboard() {
                             className="h-8"
                           />
                         </td>
+                        <td className="py-2 px-2 text-sm text-muted-foreground">Today</td>
                         <td className="py-2 px-2">
-                          <Button size="sm" onClick={handleAddKudos} className="h-8">
-                            Save
-                          </Button>
+                          <div className="flex gap-1">
+                            <Button size="sm" onClick={handleAddKudos} className="h-8 px-3">
+                              Save
+                            </Button>
+                            <Button 
+                              size="sm" 
+                              variant="outline" 
+                              onClick={() => {
+                                setIsAddingKudos(false);
+                                setNewKudos({ name: "", action: "", by_whom: "" });
+                              }} 
+                              className="h-8 px-2"
+                            >
+                              Cancel
+                            </Button>
+                          </div>
                         </td>
                       </tr>
                     )}
@@ -717,7 +912,17 @@ export default function ProductionDashboard() {
 
               {/* Today's Issues */}
               <div>
-                <h3 className="font-medium mb-3 text-muted-foreground">Today's Top Issues (Standup Items)</h3>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-medium text-muted-foreground">Today's Top Issues (Standup Items)</h3>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={handleResetTodayIssues}
+                    className="text-xs bg-red-50 hover:bg-red-100 text-red-700 border-red-200"
+                  >
+                    🔄 Reset Today
+                  </Button>
+                </div>
                 <div className="text-xs text-muted-foreground mb-2">
                   Add today's issues for standup. They will automatically appear in "Top Issues" section for tracking.
                 </div>
@@ -797,99 +1002,55 @@ export default function ProductionDashboard() {
           </CardContent>
         </Card>
 
-        {/* Charts */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* PCE vs Batch */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-balance">PCE vs Batch</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={200}>
-                <BarChart data={pceData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#3b82f6" opacity={0.2} />
-                  <XAxis dataKey="batch" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
-                  <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "#1e293b",
-                      border: "1px solid #3b82f6",
-                      borderRadius: "8px",
-                      color: "#f1f5f9",
-                    }}
-                  />
-                  <Bar dataKey="pce" fill="#3b82f6" radius={[4, 4, 0, 0]} stroke="#1d4ed8" strokeWidth={1} />
-                </BarChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
+        {/* Charts - Separate Analysis Sections */}
+        <div className="space-y-8">
+          {/* 1. Parameter Analysis (FF, PCE, etc.) */}
+          <div className="w-full">
+            <ParameterChart />
+          </div>
 
-          {/* Device Yield */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-balance">Device Yield</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={200}>
-                <LineChart data={yieldData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#10b981" opacity={0.2} />
-                  <XAxis dataKey="time" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
-                  <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "#1e293b",
-                      border: "1px solid #10b981",
-                      borderRadius: "8px",
-                      color: "#f1f5f9",
-                    }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="yield"
-                    stroke="#10b981"
-                    strokeWidth={4}
-                    dot={{ fill: "#10b981", strokeWidth: 2, r: 6 }}
-                    activeDot={{ r: 8, fill: "#059669", stroke: "#10b981", strokeWidth: 2 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
+          {/* 2. Device Yield Analysis */}
+          <DeviceYieldChart />
 
-          {/* IV Repeatability */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-balance">IV Repeatability</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={200}>
-                <LineChart data={repeatabilityData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f59e0b" opacity={0.2} />
-                  <XAxis dataKey="time" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
-                  <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "#1e293b",
-                      border: "1px solid #f59e0b",
-                      borderRadius: "8px",
-                      color: "#f1f5f9",
-                    }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="value"
-                    stroke="#f59e0b"
-                    strokeWidth={4}
-                    dot={{ fill: "#f59e0b", strokeWidth: 2, r: 6 }}
-                    activeDot={{ r: 8, fill: "#d97706", stroke: "#f59e0b", strokeWidth: 2 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
+          {/* 3. IV Repeatability Analysis */}
+          <IVRepeatabilityChart />
         </div>
       </div>
     </div>
+        } />
+        <Route path="/upload-data" element={<UploadData />} />
+        <Route path="/stability" element={<StabilityDashboard />} />
+        <Route path="/analysis" element={<Analysis />} />
+      </Routes>
+    </Router>
   )
-}
 
+  // Show login page if not authenticated
+  if (isCheckingAuth) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!isAuthenticated) {
+    if (showSignup) {
+      return (
+        <Signup 
+          onSignupSuccess={() => {
+            setShowSignup(false);
+          }}
+          onBackToLogin={() => setShowSignup(false)}
+        />
+      );
+    }
+    return <Login onLogin={setIsAuthenticated} onSignupClick={() => setShowSignup(true)} />
+  }
+
+  // Show main app if authenticated
+  return mainApp
+}
